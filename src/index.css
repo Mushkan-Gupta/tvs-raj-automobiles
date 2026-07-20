@@ -1,0 +1,226 @@
+@import "tailwindcss";
+@import "rc-slider/assets/index.css";
+
+@theme {
+  --color-tvs-blue: #0066CC;
+  --color-tvs-blue-hover: #004C99;
+  --color-tvs-dark: #0b0f19;
+  --color-tvs-dark-surface: #111827;
+  --color-tvs-card: #151c2c;
+  --color-tvs-border: #1f293d;
+  --color-tvs-red: #E31837;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #0b0f19;
+  color: #f8fafc;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(21, 28, 44, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(21, 28, 44, 0.75) 0%, rgba(15, 23, 42, 0.6) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(0, 102, 204, 0.5);
+  box-shadow: 0 12px 30px -10px rgba(0, 102, 204, 0.25);
+  transform: translateY(-4px) scale(1.01);
+}
+
+/* Hero animated CSS gradient mesh background */
+.hero-gradient-bg {
+  background: radial-gradient(circle at 20% 20%, rgba(0, 102, 204, 0.25) 0%, transparent 40%),
+              radial-gradient(circle at 80% 70%, rgba(227, 24, 55, 0.15) 0%, transparent 40%),
+              radial-gradient(circle at 50% 50%, rgba(11, 15, 25, 1) 0%, rgba(11, 15, 25, 1) 100%);
+  background-size: 150% 150%;
+  animation: meshGradient 12s ease infinite alternate;
+}
+
+@keyframes meshGradient {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 50% 100%;
+  }
+}
+
+/* Animated glow pulse */
+.glow-pulse {
+  animation: pulseGlow 4s ease-in-out infinite alternate;
+}
+
+@keyframes pulseGlow {
+  0% {
+    opacity: 0.3;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+/* Interactive Button Hover scale and color shift */
+.btn-primary {
+  background: linear-gradient(135deg, #0066CC 0%, #004C99 100%);
+  color: #ffffff;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px -3px rgba(0, 102, 204, 0.4);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #0077EE 0%, #0055BB 100%);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 25px -3px rgba(0, 102, 204, 0.6);
+}
+
+.btn-primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-secondary {
+  background: rgba(21, 28, 44, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-secondary:hover {
+  background: rgba(30, 41, 61, 0.9);
+  border-color: rgba(0, 102, 204, 0.5);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   rc-slider TVS Dark Theme Overrides
+   ========================================================================== */
+.rc-slider {
+  padding: 8px 0 !important;
+}
+
+.rc-slider-rail {
+  background-color: #1f293d !important;
+  height: 6px !important;
+  border-radius: 3px !important;
+}
+
+.rc-slider-track {
+  background-color: #0066CC !important;
+  height: 6px !important;
+  border-radius: 3px !important;
+}
+
+.rc-slider-handle {
+  border: 2px solid #0066CC !important;
+  background-color: #0b0f19 !important;
+  width: 18px !important;
+  height: 18px !important;
+  margin-top: -6px !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 10px rgba(0, 102, 204, 0.5) !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle-dragging,
+.rc-slider-handle-active,
+.rc-slider-handle:focus {
+  border-color: #3399FF !important;
+  box-shadow: 0 0 15px rgba(0, 102, 204, 0.9), 0 0 0 4px rgba(0, 102, 204, 0.25) !important;
+  transform: scale(1.2) !important;
+  outline: none !important;
+}
+
+.rc-slider-disabled {
+  background-color: transparent !important;
+  opacity: 0.35 !important;
+}
+
+.rc-slider-disabled .rc-slider-track {
+  background-color: #475569 !important;
+}
+
+.rc-slider-disabled .rc-slider-handle {
+  border-color: #475569 !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+/* Custom Handle Tooltip */
+.slider-handle-container {
+  position: relative;
+}
+
+.slider-tooltip {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0066CC;
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+}
+
+.slider-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 4px;
+  border-style: solid;
+  border-color: #0066CC transparent transparent transparent;
+}
+
+.rc-slider-handle:hover .slider-tooltip,
+.rc-slider-handle-dragging .slider-tooltip,
+.rc-slider-handle-active .slider-tooltip {
+  opacity: 1;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f293d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0066CC;
+}
