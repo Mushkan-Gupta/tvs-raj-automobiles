@@ -8,25 +8,25 @@ export default function BikeDetail() {
   const bike = sampleBikes.find(b => b.id === id) || sampleBikes[0];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
-      <Link to="/bikes" className="inline-flex items-center space-x-2 text-sm text-[#0066CC] hover:underline">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6">
+      <Link to="/bikes" className="inline-flex items-center space-x-2 text-sm text-[#0066CC] hover:underline min-h-[36px]">
         <ArrowLeft className="w-4 h-4" />
         <span>Back to Bikes</span>
       </Link>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 bg-[#151c2c] rounded-2xl overflow-hidden border border-[#1f293d]">
-          <img src={bike.image} alt={bike.name} className="w-full h-96 object-cover" />
+          <img src={bike.image} alt={bike.name} className="w-full h-64 sm:h-80 lg:h-96 object-cover" />
         </div>
 
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-5">
           <div>
             <span className="text-xs text-[#0066CC] font-bold uppercase tracking-wider">{bike.category}</span>
-            <h1 className="text-3xl font-extrabold text-white">{bike.name}</h1>
-            <p className="text-2xl font-bold text-[#0066CC] mt-2">{bike.price}</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{bike.name}</h1>
+            <p className="text-xl sm:text-2xl font-bold text-[#0066CC] mt-1.5">{bike.price}</p>
           </div>
 
-          <p className="text-gray-300 text-sm">{bike.description}</p>
+          <p className="text-gray-300 text-sm leading-relaxed">{bike.description}</p>
 
           <div className="space-y-3 pt-4 border-t border-[#1f293d]">
             <h3 className="font-bold text-white text-sm">Key Specifications</h3>
@@ -43,11 +43,17 @@ export default function BikeDetail() {
                 <CheckCircle2 className="w-4 h-4 text-[#0066CC]" />
                 <span>Mileage: {bike.mileage}</span>
               </li>
+              {bike.transmission && (
+                <li className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#0066CC]" />
+                  <span>Transmission: {bike.transmission}</span>
+                </li>
+              )}
             </ul>
           </div>
 
           <div className="pt-4 space-y-3">
-            <Link to="/contact" className="block w-full py-3.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-bold text-center rounded-xl text-sm">
+            <Link to="/contact" className="block w-full py-3.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-bold text-center rounded-xl text-sm min-h-[44px]">
               Inquire at Lahan Showroom
             </Link>
           </div>

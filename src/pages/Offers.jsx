@@ -25,27 +25,27 @@ export default function Offers() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
-      <div className="border-b border-[#1f293d] pb-6">
-        <h1 className="text-3xl font-extrabold text-white">Latest TVS Offers & Deals</h1>
-        <p className="text-gray-400 text-sm mt-1">Exclusive showroom discounts, festival schemes, and exchange bonuses in Lahan.</p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6">
+      <div className="border-b border-[#1f293d] pb-5">
+        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Latest TVS Offers & Deals</h1>
+        <p className="text-gray-400 text-xs sm:text-sm mt-1">Exclusive showroom discounts, festival schemes, and exchange bonuses in Lahan.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {offersList.map((offer, idx) => (
-          <div key={idx} className="bg-[#151c2c] p-6 rounded-2xl border border-[#1f293d] space-y-4 flex flex-col justify-between">
+          <div key={idx} className="bg-[#151c2c] p-5 sm:p-6 rounded-2xl border border-[#1f293d] space-y-3.5 flex flex-col justify-between">
             <div className="space-y-3">
               <span className="bg-[#0066CC] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
                 {offer.badge}
               </span>
-              <h2 className="text-xl font-bold text-white pt-2">{offer.title}</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-white pt-1">{offer.title}</h2>
               <div className="flex items-center space-x-2 text-xs text-gray-400">
                 <Calendar className="w-3.5 h-3.5 text-[#0066CC]" />
                 <span>{offer.validity}</span>
               </div>
               <p className="text-sm text-gray-300 leading-relaxed">{offer.details}</p>
             </div>
-            <Link to="/contact" className="inline-flex items-center justify-between text-xs font-bold text-[#0066CC] hover:text-blue-400 pt-4 border-t border-[#1f293d]">
+            <Link to="/contact" className="inline-flex items-center justify-between text-xs font-bold text-[#0066CC] hover:text-blue-400 pt-3.5 border-t border-[#1f293d]">
               <span>Claim Offer at Showroom</span>
               <ArrowRight className="w-4 h-4" />
             </Link>

@@ -31,12 +31,18 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Filter sidebar variant — no backdrop-filter so slider dragging stays GPU-cheap */
+.filter-panel {
+  background: rgba(21, 28, 44, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .glass-card {
   background: linear-gradient(135deg, rgba(21, 28, 44, 0.75) 0%, rgba(15, 23, 42, 0.6) 100%);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
 }
 
 .glass-card:hover {
@@ -55,15 +61,9 @@ body {
 }
 
 @keyframes meshGradient {
-  0% {
-    background-position: 0% 0%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 50% 100%;
-  }
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 50% 100%; }
 }
 
 /* Animated glow pulse */
@@ -72,14 +72,8 @@ body {
 }
 
 @keyframes pulseGlow {
-  0% {
-    opacity: 0.3;
-    transform: scale(0.95);
-  }
-  100% {
-    opacity: 0.7;
-    transform: scale(1.05);
-  }
+  0% { opacity: 0.3; transform: scale(0.95); }
+  100% { opacity: 0.7; transform: scale(1.05); }
 }
 
 /* Interactive Button Hover scale and color shift */
@@ -115,43 +109,62 @@ body {
 }
 
 /* ==========================================================================
-   rc-slider TVS Dark Theme Overrides
+   rc-slider — Dark Theme & Zero-Lag Performance Overrides
    ========================================================================== */
 .rc-slider {
-  padding: 8px 0 !important;
+  padding: 10px 0 !important;
+  touch-action: none !important;
+  /* Force GPU layer so slider repaints stay isolated from the rest of the page */
+  will-change: contents;
 }
 
 .rc-slider-rail {
   background-color: #1f293d !important;
   height: 6px !important;
   border-radius: 3px !important;
+  transition: none !important;
 }
 
 .rc-slider-track {
   background-color: #0066CC !important;
   height: 6px !important;
   border-radius: 3px !important;
+  /* CRITICAL: no transition on track — it must snap to handle position instantly */
+  transition: none !important;
 }
 
 .rc-slider-handle {
   border: 2px solid #0066CC !important;
   background-color: #0b0f19 !important;
-  width: 18px !important;
-  height: 18px !important;
-  margin-top: -6px !important;
+  width: 22px !important;
+  height: 22px !important;
+  margin-top: -8px !important;
   opacity: 1 !important;
+  cursor: grab !important;
   box-shadow: 0 0 10px rgba(0, 102, 204, 0.5) !important;
-  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+  /* CRITICAL: no transition on position/transform — the handle must follow the cursor 1:1 */
+  transition: none !important;
+  touch-action: none !important;
 }
 
-.rc-slider-handle:hover,
+.rc-slider-handle:hover {
+  border-color: #3399FF !important;
+  box-shadow: 0 0 16px rgba(0, 102, 204, 0.9), 0 0 0 4px rgba(0, 102, 204, 0.25) !important;
+  outline: none !important;
+}
+
 .rc-slider-handle-dragging,
 .rc-slider-handle-active,
-.rc-slider-handle:focus {
+.rc-slider-handle:active {
   border-color: #3399FF !important;
-  box-shadow: 0 0 15px rgba(0, 102, 204, 0.9), 0 0 0 4px rgba(0, 102, 204, 0.25) !important;
-  transform: scale(1.2) !important;
+  box-shadow: 0 0 16px rgba(0, 102, 204, 0.9), 0 0 0 4px rgba(0, 102, 204, 0.3) !important;
   outline: none !important;
+  cursor: grabbing !important;
+}
+
+.rc-slider-handle:focus {
+  outline: none !important;
+  box-shadow: 0 0 12px rgba(0, 102, 204, 0.7) !important;
 }
 
 .rc-slider-disabled {
@@ -170,13 +183,9 @@ body {
 }
 
 /* Custom Handle Tooltip */
-.slider-handle-container {
-  position: relative;
-}
-
 .slider-tooltip {
   position: absolute;
-  bottom: 24px;
+  bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   background: #0066CC;
@@ -186,11 +195,11 @@ body {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  z-index: 10;
+  transition: opacity 0.1s ease;
+  z-index: 20;
 }
 
 .slider-tooltip::after {
@@ -206,7 +215,9 @@ body {
 
 .rc-slider-handle:hover .slider-tooltip,
 .rc-slider-handle-dragging .slider-tooltip,
-.rc-slider-handle-active .slider-tooltip {
+.rc-slider-handle-active .slider-tooltip,
+.rc-slider-handle:active .slider-tooltip,
+.rc-slider-handle:focus .slider-tooltip {
   opacity: 1;
 }
 

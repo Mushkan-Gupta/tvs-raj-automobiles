@@ -59,7 +59,7 @@ export default function Footer() {
               Popular Models
             </h3>
             <ul className="space-y-2 text-sm">
-              {['Apache RTR 160 4V', 'TVS Raider 125', 'NTORQ 125 Race XP', 'TVS Ronin 225', 'Apache RR 310', 'TVS Jupiter 125'].map((model, index) => (
+              {['Apache RTR 160 4V', 'Apache RTR 200 4V', 'Apache RR 310', 'TVS Raider 125', 'TVS Ronin', 'TVS NTORQ 125', 'TVS Jupiter', 'TVS iQube'].map((model, index) => (
                 <li key={index}>
                   <Link to="/bikes" className="hover:text-[#0066CC] flex items-center space-x-1.5 transition-colors group">
                     <ChevronRight className="w-3.5 h-3.5 text-gray-600 group-hover:text-[#0066CC] transition-colors" />
@@ -70,7 +70,7 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Column 4: Contact Info Placeholder */}
+          {/* Column 4: Contact Info */}
           <div>
             <h3 className="text-white text-base font-semibold mb-4 pb-2 border-b border-[#1f293d] inline-block">
               Contact & Location
@@ -82,8 +82,8 @@ export default function Footer() {
               </li>
               <li className="flex items-center space-x-3">
                 <Phone className="w-4 h-4 text-[#0066CC] shrink-0" />
-                <a href={`tel:${showroomInfo.phonePlaceholder}`} className="hover:text-white transition-colors">
-                  {showroomInfo.phonePlaceholder}
+                <a href="tel:+9779819789215" className="hover:text-white transition-colors">
+                  +977 9819789215
                 </a>
               </li>
               <li className="flex items-center space-x-3">
