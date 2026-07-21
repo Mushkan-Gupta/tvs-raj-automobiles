@@ -10,12 +10,18 @@ import Offers from './pages/Offers';
 import Finance from './pages/Finance';
 import About from './pages/About';
 import Contact from './pages/Contact';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/AdminDashboard';
+import EmployeeDashboard from './pages/EmployeeDashboard';
+import { AuthProvider } from './lib/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import { MessageSquare } from 'lucide-react';
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-gray-100 flex flex-col font-sans selection:bg-[#0066CC] selection:text-white relative">
-      <Navbar />
+    <AuthProvider>
+      <div className="min-h-screen bg-[#0b0f19] text-gray-100 flex flex-col font-sans selection:bg-[#0066CC] selection:text-white relative">
+        <Navbar />
       <main className="flex-grow">
         <Routes>
           <Route path="/" element={<Home />} />
@@ -25,6 +31,15 @@ export default function App() {
           <Route path="/finance" element={<Finance />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/admin-login" element={<AdminLogin />} />
+          
+          <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          </Route>
+          
+          <Route element={<ProtectedRoute allowedRoles={['admin', 'employee']} />}>
+            <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
+          </Route>
         </Routes>
       </main>
 
@@ -40,7 +55,8 @@ export default function App() {
         <span className="hidden sm:inline text-xs font-bold">WhatsApp Us</span>
       </a>
 
-      <Footer />
-    </div>
+        <Footer />
+      </div>
+    </AuthProvider>
   );
 }

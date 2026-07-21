@@ -14,8 +14,8 @@ export default function Home() {
     async function fetchFeatured() {
       try {
         setLoading(true);
-        // Fetch up to 4 featured bikes from Supabase
-        const { data, error: err } = await supabase.from('bikes').select('*').eq('featured', true).limit(4);
+        // Fetch up to 4 bikes from Supabase for the featured section
+        const { data, error: err } = await supabase.from('bikes').select('*').limit(4);
         
         if (err) throw err;
         
