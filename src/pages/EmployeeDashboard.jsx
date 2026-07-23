@@ -108,6 +108,12 @@ export default function EmployeeDashboard() {
   const set = (field) => (e) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
+  // Strip every non-digit character as the user types; caps at 10 digits
+  const setPhone = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+    setForm((prev) => ({ ...prev, customerPhone: digits }));
+  };
+
   const selectedBike = bikes.find((b) => String(b.id) === String(form.bikeId));
 
   // ─── Fetch bikes ───────────────────────────────────────────────────────
@@ -147,6 +153,7 @@ export default function EmployeeDashboard() {
     if (form.action === 'sale') {
       if (!form.customerName.trim()) { setFormError('Customer name is required for a sale.'); return; }
       if (!form.customerPhone.trim()) { setFormError('Customer phone is required for a sale.'); return; }
+      if (!/^\d{10}$/.test(form.customerPhone)) { setFormError('Phone number must be exactly 10 digits.'); return; }
     }
 
     // ── Stock check for sales ──
@@ -376,9 +383,12 @@ export default function EmployeeDashboard() {
                     <input
                       className={inputCls + ' pl-9'}
                       type="tel"
-                      placeholder="Phone number"
+                      inputMode="numeric"
+                      pattern="[0-9]{10}"
+                      placeholder="10-digit number"
+                      maxLength={10}
                       value={form.customerPhone}
-                      onChange={set('customerPhone')}
+                      onChange={setPhone}
                       disabled={submitting}
                       required
                     />
