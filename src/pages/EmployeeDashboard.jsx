@@ -195,7 +195,55 @@ export default function EmployeeDashboard() {
         .eq('id', form.bikeId);
       if (updateError) throw updateError;
 
-      showToast('Stock updated successfully ✓');
+      // 3. Sync to Google Sheets — fire-and-forget.
+      //    This runs AFTER the bike quantity is already updated in Supabase,
+      //    so the Edge Function will read the correct "new stock level".
+      //    If this fails for any reason (network, Google API down, etc.) we
+      //    do NOT throw — the stock log + quantity update are already committed
+      //    and are considered successful regardless.
+      let syncFailed = false;
+      try {
+        const { error: syncError } = await supabase.functions.invoke('sync-to-sheets', {
+          body: {
+            bike_id:        form.bikeId,
+            type:           form.action === 'arrival' ? 'arrival' : 'sale',
+            quantity:       qty,
+            logged_by:      loggedBy,
+            customer_name:  form.action === 'sale' ? form.customerName.trim()  : undefined,
+            customer_phone: form.action === 'sale' ? form.customerPhone.trim() : undefined,
+            created_at:     new Date().toISOString(),
+          },
+        });
+        if (syncError) {
+          // syncError is a FunctionsHttpError wrapper. The real error details
+          // (our JSON body with "error" and "detail" fields) live on the raw
+          // Response object at syncError.context. We .json() it to extract them.
+          let detail = syncError.message; // fallback to the wrapper message
+          try {
+            if (syncError.context instanceof Response) {
+              const body = await syncError.context.json();
+              // body looks like: { error: "...", detail: "..." }
+              detail = body?.detail
+                ? `${body.error} — ${body.detail}`
+                : (body?.error ?? syncError.message);
+            }
+          } catch {
+            // If the body isn't valid JSON, stick with the wrapper message
+          }
+          console.warn('[sync-to-sheets] Edge Function error:', detail);
+          syncFailed = true;
+        }
+      } catch (syncErr) {
+        // Unexpected network-level failure (offline, DNS, etc.)
+        console.warn('[sync-to-sheets] Failed to reach Edge Function:', syncErr);
+        syncFailed = true;
+      }
+
+      if (syncFailed) {
+        showToast('Stock updated, but Sheet sync failed ⚠', 'error');
+      } else {
+        showToast('Stock updated successfully ✓');
+      }
       setForm(EMPTY_FORM);
       fetchBikes();
       fetchLogs();
@@ -382,16 +430,23 @@ export default function EmployeeDashboard() {
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
                     <input
                       className={inputCls + ' pl-9'}
-                      type="tel"
+                      type="text"
                       inputMode="numeric"
                       pattern="[0-9]{10}"
                       placeholder="10-digit number"
                       maxLength={10}
                       value={form.customerPhone}
                       onChange={setPhone}
+                      onKeyDown={(e) => {
+                        // Block any key that would push a digit past 10 characters
+                        const isDigit = /^\d$/.test(e.key);
+                        const wouldExceed = form.customerPhone.length >= 10;
+                        if (isDigit && wouldExceed) e.preventDefault();
+                      }}
                       disabled={submitting}
                       required
                     />
+
                   </div>
                 </Field>
               </div>
