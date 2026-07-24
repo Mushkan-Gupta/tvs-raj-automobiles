@@ -58,19 +58,65 @@ Deno.serve(async (req: Request) => {
   // STEP 1: Parse the incoming stock_logs row from the request body
   // ============================================================
   let stockLog: {
-    bike_id: string;
-    type: string;           // "arrival" | "sale"
-    quantity: number;
-    logged_by: string;
+    bike_id?: string;
+    type: string;           // "arrival" | "sale" | "inquiry"
+    quantity?: number;
+    logged_by?: string;
     customer_name?: string;
     customer_phone?: string;
     created_at: string;
+    name?: string;
+    phone?: string;
+    interested_model?: string;
+    message?: string;
   };
 
   try {
     stockLog = await req.json();
   } catch {
     return jsonResponse({ error: "Invalid JSON in request body." }, 400);
+  }
+
+  // --- Handle 'inquiry' type specifically ---
+  if (stockLog.type === "inquiry") {
+    const reqFields = ["type", "name", "phone", "interested_model", "message", "created_at"];
+    for (const field of reqFields) {
+      if (stockLog[field as keyof typeof stockLog] === undefined || stockLog[field as keyof typeof stockLog] === null) {
+        return jsonResponse({ error: `Missing required field for inquiry: ${field}` }, 400);
+      }
+    }
+
+    const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
+    const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
+    const sheetId = Deno.env.get("GOOGLE_SHEET_ID");
+    if (!clientEmail || !privateKeyPem || !sheetId) {
+      return jsonResponse({ error: "Missing Google Sheets env vars." }, 500);
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    } catch (err) {
+      return jsonResponse({ error: "Failed to authenticate with Google.", detail: String(err) }, 500);
+    }
+
+    const date = new Date(stockLog.created_at);
+    const formattedDate = date.toLocaleString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata",
+    });
+
+    const rowValues = [formattedDate, stockLog.name, stockLog.phone, stockLog.interested_model, stockLog.message];
+    const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Inquiries")}!A1:E1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    
+    const appendRes = await fetch(appendUrl, {
+      method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ values: [rowValues] }),
+    });
+
+    if (!appendRes.ok) {
+      return jsonResponse({ error: "Google Sheets append to Inquiries failed.", detail: await appendRes.text() }, 500);
+    }
+    return jsonResponse({ success: true, message: "Inquiry synced to Google Sheets." });
   }
 
   // Validate required fields

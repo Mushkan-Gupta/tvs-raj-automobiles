@@ -53,7 +53,7 @@ export default function BikeDetail() {
           </div>
 
           <div className="pt-4 space-y-3">
-            <Link to="/contact" className="block w-full py-3.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-bold text-center rounded-xl text-sm min-h-[44px]">
+            <Link to="/contact" state={{ model: bike.name }} className="block w-full py-3.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-bold text-center rounded-xl text-sm min-h-[44px]">
               Inquire at Lahan Showroom
             </Link>
           </div>

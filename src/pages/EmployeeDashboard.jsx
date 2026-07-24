@@ -4,7 +4,7 @@ import { useAuth } from '../lib/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
   LogOut, TrendingUp, ShoppingCart, AlertCircle, Check,
-  ChevronDown, Package, Clock, User, Phone, RefreshCw,
+  ChevronDown, Package, Clock, User, Phone, RefreshCw, MessageSquare,
 } from 'lucide-react';
 
 // ─── Shared style constants ───────────────────────────────────────────────────
@@ -77,6 +77,71 @@ function relativeTime(isoString) {
   return new Date(isoString).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
+// ─── Status badge for inquiries ────────────────────────────────────────────
+function StatusBadge({ status }) {
+  let cls = 'bg-gray-500/15 text-gray-400 border-gray-500/30'; // inquired
+  let text = 'Inquired';
+  if (status === 'contacted') {
+    cls = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+    text = 'Contacted';
+  } else if (status === 'visited') {
+    cls = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+    text = 'Visited';
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${cls}`}>
+      {text}
+    </span>
+  );
+}
+
+// ─── Inquiries List ───────────────────────────────────────────────────────
+function InquiriesSection({ inquiries, loading, updateStatus }) {
+  if (loading) return <div className="py-12 text-center text-gray-500 text-sm">Loading inquiries...</div>;
+  if (inquiries.length === 0) return <div className="py-12 text-center text-gray-500 text-sm">No inquiries found.</div>;
+
+  return (
+    <div className="space-y-4">
+      {inquiries.map(inq => (
+        <div key={inq.id} className="bg-[#0e1422] border border-[#1f293d] rounded-2xl p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-1.5">
+                <h3 className="text-white font-bold">{inq.name}</h3>
+                <StatusBadge status={inq.status || 'inquired'} />
+              </div>
+              <p className="text-sm text-gray-400 flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5" />{inq.phone}
+              </p>
+            </div>
+            <div className="sm:text-right">
+              <p className="text-xs text-[#0066CC] font-bold uppercase tracking-wider">{inq.interested_model}</p>
+              <p className="text-xs text-gray-500 mt-1.5">{relativeTime(inq.created_at)}</p>
+            </div>
+          </div>
+          {inq.message && (
+            <div className="bg-[#151c2c] p-3.5 rounded-xl border border-[#1f293d]">
+              <p className="text-sm text-gray-300 italic">"{inq.message}"</p>
+            </div>
+          )}
+          <div className="flex items-center gap-3 pt-4 border-t border-[#1f293d]">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Update Status</span>
+            <select
+              value={inq.status || 'inquired'}
+              onChange={(e) => updateStatus(inq.id, e.target.value)}
+              className="bg-[#0b0f19] border border-[#1f293d] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0066CC] cursor-pointer"
+            >
+              <option value="inquired">Inquired</option>
+              <option value="contacted">Contacted</option>
+              <option value="visited">Visited</option>
+            </select>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -95,6 +160,11 @@ export default function EmployeeDashboard() {
   // ── Recent activity ──
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(true);
+
+  // ── Inquiries ──
+  const [inquiries, setInquiries] = useState([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState(true);
+  const [showInquiries, setShowInquiries] = useState(false);
 
   // ── Toast ──
   const [toast, setToast] = useState(null);
@@ -139,7 +209,29 @@ export default function EmployeeDashboard() {
     setLogsLoading(false);
   }, []);
 
-  useEffect(() => { fetchBikes(); fetchLogs(); }, [fetchBikes, fetchLogs]);
+  // ─── Fetch inquiries ───────────────────────────────────────────────────
+  const fetchInquiries = useCallback(async () => {
+    setInquiriesLoading(true);
+    const { data, error } = await supabase
+      .from('inquiries')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error) setInquiries(data || []);
+    setInquiriesLoading(false);
+  }, []);
+
+  useEffect(() => { fetchBikes(); fetchLogs(); fetchInquiries(); }, [fetchBikes, fetchLogs, fetchInquiries]);
+
+  // ─── Update inquiry status ─────────────────────────────────────────────
+  const updateInquiryStatus = async (id, status) => {
+    const { error } = await supabase.from('inquiries').update({ status }).eq('id', id);
+    if (error) {
+      showToast('Failed to update status', 'error');
+    } else {
+      showToast('Status updated successfully');
+      fetchInquiries();
+    }
+  };
 
   // ─── Submit handler ────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -312,18 +404,37 @@ export default function EmployeeDashboard() {
             )}
           </p>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d]
-            text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold
-            transition-colors min-h-[44px] self-start sm:self-auto"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Logout</span>
-        </button>
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+          <button
+            onClick={() => setShowInquiries(!showInquiries)}
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d]
+              text-gray-300 hover:text-white hover:border-gray-500 text-sm font-semibold
+              transition-colors min-h-[44px]"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>{showInquiries ? 'Back to Stock Log' : 'View Inquiries'}</span>
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d]
+              text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold
+              transition-colors min-h-[44px]"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
 
-      {/* ── Stock Log Form ── */}
+      {showInquiries ? (
+        <InquiriesSection 
+          inquiries={inquiries} 
+          loading={inquiriesLoading} 
+          updateStatus={updateInquiryStatus} 
+        />
+      ) : (
+        <>
+          {/* ── Stock Log Form ── */}
       <div className="bg-[#0e1422] border border-[#1f293d] rounded-2xl overflow-hidden">
         {/* Card header */}
         <div className="px-5 py-4 border-b border-[#1f293d] flex items-center space-x-3">
@@ -579,6 +690,8 @@ export default function EmployeeDashboard() {
           </ul>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
