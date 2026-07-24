@@ -121,7 +121,7 @@ export default function EmployeeDashboard() {
     setBikesLoading(true);
     const { data, error } = await supabase
       .from('bikes')
-      .select('id, name, quantity, availability')
+      .select('id, name, quantity, availability, low_stock_threshold')
       .order('name');
     if (!error) setBikes(data || []);
     setBikesLoading(false);
@@ -237,6 +237,39 @@ export default function EmployeeDashboard() {
         // Unexpected network-level failure (offline, DNS, etc.)
         console.warn('[sync-to-sheets] Failed to reach Edge Function:', syncErr);
         syncFailed = true;
+      }
+
+      // 4. Stock email alerts — fire-and-forget.
+      //    Only triggered when a sale drives the stock to exactly 0 (out_of_stock)
+      //    OR exactly to the low_stock_threshold (low_stock).
+      //    Non-blocking: a failure here does NOT affect the stock update result.
+      if (form.action === 'sale') {
+        const threshold = selectedBike?.low_stock_threshold ?? 2; // fallback if undefined
+        
+        let alertType = null;
+        if (newQty <= 0) {
+          alertType = 'out_of_stock';
+        } else if (newQty === threshold) {
+          alertType = 'low_stock';
+        }
+
+        if (alertType) {
+          try {
+            const { error: notifyError } = await supabase.functions.invoke('notify-out-of-stock', {
+              body: {
+                bike_name: selectedBike?.name ?? 'Unknown Bike',
+                bike_id:   form.bikeId,
+                alert_type: alertType,
+                current_quantity: newQty,
+              },
+            });
+            if (notifyError) {
+              console.warn('[notify-out-of-stock] Edge Function error:', notifyError.message);
+            }
+          } catch (notifyErr) {
+            console.warn('[notify-out-of-stock] Failed to reach Edge Function:', notifyErr);
+          }
+        }
       }
 
       if (syncFailed) {
