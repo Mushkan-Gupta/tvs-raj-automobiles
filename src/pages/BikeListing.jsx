@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Slider from 'rc-slider';
 import { Filter, RotateCcw, X, SlidersHorizontal, Check, AlertCircle, ArrowRight, Zap, Loader } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { sampleBikes } from '../data/bikes';
 
 // ─── Filter Sidebar (extracted as a top-level component to avoid re-mount on parent state changes) ───
 const FilterSidebar = React.memo(function FilterSidebar({
@@ -225,33 +226,35 @@ export default function BikeListing() {
         setSupabaseLoading(true);
         const { data, error } = await supabase.from('bikes').select('*');
         
-        if (error) throw error;
+        if (error || !data || data.length === 0) {
+          setSupabaseBikes(sampleBikes);
+        } else {
+          // Map Supabase data to match BikeCard expected props
+          const formattedBikes = data.map(bike => ({
+            ...bike,
+            id: bike.id,
+            name: bike.name,
+            category: bike.category,
+            engine: bike.specs?.engine || 'N/A',
+            mileage: bike.specs?.mileage || 'N/A',
+            power: bike.specs?.power,
+            torque: bike.specs?.torque,
+            transmission: bike.specs?.transmission,
+            price: bike.price ? `NPR ${bike.price.toLocaleString()}` : 'Price TBA',
+            priceValue: bike.price || 0,
+            ccValue: bike.engine_cc || 0,
+            fuelType: bike.fuel_type || 'Petrol',
+            inStock: bike.in_stock,
+            tag: bike.tag,
+            image: bike.image_url || 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=800&q=80',
+            description: bike.description
+          }));
 
-        // Map Supabase data to match BikeCard expected props
-        const formattedBikes = (data || []).map(bike => ({
-          ...bike,
-          id: bike.id,
-          name: bike.name,
-          category: bike.category,
-          engine: bike.specs?.engine || 'N/A',
-          mileage: bike.specs?.mileage || 'N/A',
-          power: bike.specs?.power,
-          torque: bike.specs?.torque,
-          transmission: bike.specs?.transmission,
-          price: bike.price ? `NPR ${bike.price.toLocaleString()}` : 'Price TBA',
-          priceValue: bike.price || 0,
-          ccValue: bike.engine_cc || 0,
-          fuelType: bike.fuel_type || 'Petrol',
-          inStock: bike.in_stock,
-          tag: bike.tag,
-          image: bike.image_url || 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=800&q=80',
-          description: bike.description
-        }));
-
-        setSupabaseBikes(formattedBikes);
+          setSupabaseBikes(formattedBikes);
+        }
       } catch (err) {
         console.error('Error fetching bikes:', err);
-        setSupabaseError(err.message);
+        setSupabaseBikes(sampleBikes);
       } finally {
         setSupabaseLoading(false);
       }

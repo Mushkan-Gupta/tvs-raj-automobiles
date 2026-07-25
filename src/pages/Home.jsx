@@ -1,9 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Phone, MessageSquare, ChevronRight, Award, Wrench, ShieldCheck, Zap, ArrowRight, Star, Tag, CheckCircle2, Loader, AlertCircle } from 'lucide-react';
-import { showroomInfo } from '../data/bikes';
+import { sampleBikes, showroomInfo } from '../data/bikes';
 import { supabase } from '../lib/supabaseClient';
+import CustomerReviews from '../components/CustomerReviews';
+import PromoBanner from '../components/PromoBanner';
+
+const Hero3DBike = lazy(() => import('../components/Hero3DBike'));
+
+function Hero3DLoader() {
+  return (
+    <div className="w-full h-full min-h-[280px] sm:min-h-[384px] bg-gradient-to-b from-[#111827]/80 via-[#0b0f19] to-[#070a12] flex flex-col items-center justify-center space-y-3 rounded-2xl border border-blue-500/20">
+      <div className="relative w-12 h-12 flex items-center justify-center">
+        <div className="absolute inset-0 rounded-full border-2 border-blue-500/20 animate-ping" />
+        <div className="w-10 h-10 rounded-full border-2 border-[#0066CC] border-t-transparent animate-spin" />
+      </div>
+      <p className="text-xs font-medium text-blue-300/80 tracking-wide animate-pulse">
+        Loading 3D Bike Model...
+      </p>
+    </div>
+  );
+}
 
 export default function Home() {
   const [featuredBikes, setFeaturedBikes] = useState([]);
@@ -17,24 +35,25 @@ export default function Home() {
         // Fetch up to 4 bikes from Supabase for the featured section
         const { data, error: err } = await supabase.from('bikes').select('*').limit(4);
         
-        if (err) throw err;
-        
-        const formatted = (data || []).map(bike => ({
-          id: bike.id,
-          name: bike.name,
-          category: bike.category,
-          engine: bike.specs?.engine || 'N/A',
-          power: bike.specs?.power || 'N/A',
-          price: bike.price ? `NPR ${bike.price.toLocaleString()}` : 'Price TBA',
-          tag: bike.tag || 'Featured',
-          image: bike.image_url || 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=800&q=80',
-          description: bike.description
-        }));
-        
-        setFeaturedBikes(formatted);
+        if (err || !data || data.length === 0) {
+          setFeaturedBikes(sampleBikes.slice(0, 4));
+        } else {
+          const formatted = data.map(bike => ({
+            id: bike.id,
+            name: bike.name,
+            category: bike.category,
+            engine: bike.specs?.engine || 'N/A',
+            power: bike.specs?.power || 'N/A',
+            price: bike.price ? `NPR ${bike.price.toLocaleString()}` : 'Price TBA',
+            tag: bike.tag || 'Featured',
+            image: bike.image_url || 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=800&q=80',
+            description: bike.description
+          }));
+          setFeaturedBikes(formatted);
+        }
       } catch (err) {
         console.error('Error fetching featured bikes:', err);
-        setError(err.message);
+        setFeaturedBikes(sampleBikes.slice(0, 4));
       } finally {
         setLoading(false);
       }
@@ -135,23 +154,20 @@ export default function Home() {
 
             </motion.div>
 
-            {/* Hero Image Showcase */}
+            {/* Hero 3D Bike Showcase */}
             <motion.div
               initial={{ opacity: 0, scale: 0.92 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
               className="lg:col-span-5 flex justify-center"
             >
-              <div className="relative w-full max-w-md sm:max-w-lg rounded-3xl overflow-hidden glass-panel shadow-2xl p-2 group">
-                <div className="relative rounded-2xl overflow-hidden h-72 sm:h-96">
-                  <img
-                    src="https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=1000&q=80"
-                    alt="TVS Apache RTR Showroom"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f19] via-transparent to-transparent opacity-90" />
-                  <div className="absolute bottom-4 left-4 right-4 p-4 rounded-xl glass-panel">
-                    <span className="text-[10px] bg-[#0066CC] text-white font-bold px-2 py-0.5 rounded tracking-wider uppercase">
+              <div className="relative w-full max-w-lg sm:max-w-xl lg:max-w-2xl">
+                <div className="relative h-96 sm:h-[460px] lg:h-[500px] w-full overflow-visible">
+                  <Suspense fallback={<Hero3DLoader />}>
+                    <Hero3DBike />
+                  </Suspense>
+                  <div className="absolute bottom-2 left-2 right-2 p-4 rounded-xl glass-panel pointer-events-none z-10">
+                    <span className="text-[10px] bg-[#0066CC] text-white font-bold px-2 py-0.5 rounded tracking-wider uppercase shadow-md">
                       Best Seller
                     </span>
                     <h3 className="text-lg sm:text-xl font-bold text-white mt-1">TVS Apache RTR 160 4V</h3>
@@ -268,6 +284,9 @@ export default function Home() {
         )}
       </motion.section>
 
+      {/* 2.5 Promotional Advertisement Banner Section */}
+      <PromoBanner />
+
       {/* 3. Why Choose Us Section */}
       <motion.section
         initial={{ opacity: 0, y: 40 }}
@@ -305,7 +324,10 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 4. Contact Section with Call and WhatsApp buttons */}
+      {/* 4. Customer Reviews Section */}
+      <CustomerReviews />
+
+      {/* 5. Contact Section with Call and WhatsApp buttons */}
       <motion.section
         initial={{ opacity: 0, scale: 0.96 }}
         whileInView={{ opacity: 1, scale: 1 }}
