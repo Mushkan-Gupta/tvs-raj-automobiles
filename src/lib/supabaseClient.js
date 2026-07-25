@@ -1,16 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder-url.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[Supabase] Missing environment variables. ' +
-    'Make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in .env.local'
+if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+  console.warn(
+    '[Supabase] Missing environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
+    'Using fallback placeholder credentials so the application renders smoothly.'
   );
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Temporary connection verification — remove once confirmed working
-console.log('[Supabase] Client initialized successfully ✓ — URL:', supabaseUrl?.slice(0, 30) + '…');

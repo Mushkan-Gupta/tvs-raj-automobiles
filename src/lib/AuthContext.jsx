@@ -46,9 +46,14 @@ export function AuthProvider({ children }) {
     }
 
     // 1. Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      getSessionAndRole(session?.user);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        getSessionAndRole(data?.session?.user);
+      })
+      .catch((err) => {
+        console.warn('[AuthContext] Auth session error:', err);
+        if (mounted) setLoading(false);
+      });
 
     // 2. Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
