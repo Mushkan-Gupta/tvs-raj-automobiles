@@ -124,6 +124,7 @@ Deno.serve(async (req: Request) => {
       day: "2-digit",
       month: "short",
       year: "numeric",
+      timeZone: "Asia/Kathmandu",
     }); // e.g. "24 Jul 2026"
 
     const rows = bikes.map((bike) => [
