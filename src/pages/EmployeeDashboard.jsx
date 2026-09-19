@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   LogOut, TrendingUp, ShoppingCart, AlertCircle, Check,
   ChevronDown, Package, Clock, User, Phone, RefreshCw, MessageSquare,
+  Banknote, Building2, CreditCard,
 } from 'lucide-react';
 
 // ─── Shared style constants ───────────────────────────────────────────────────
@@ -68,13 +69,31 @@ function TypeBadge({ type }) {
   );
 }
 
-// ─── Relative time helper ──────────────────────────────────────────────────
+// ─── Nepal timezone (Asia/Kathmandu, UTC+5:45) helpers ──────────────────────
+function formatNepalDateTime(isoString) {
+  if (!isoString) return '';
+  return new Date(isoString).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kathmandu',
+  });
+}
+
 function relativeTime(isoString) {
+  if (!isoString) return '';
   const diff = Math.floor((Date.now() - new Date(isoString)) / 1000);
-  if (diff < 60) return `${diff}s ago`;
+  if (diff < 60) return `${Math.max(0, diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return new Date(isoString).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return new Date(isoString).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Kathmandu',
+  });
 }
 
 // ─── Status badge for inquiries ────────────────────────────────────────────
@@ -116,7 +135,9 @@ function InquiriesSection({ inquiries, loading, updateStatus }) {
             </div>
             <div className="sm:text-right">
               <p className="text-xs text-[#0066CC] font-bold uppercase tracking-wider">{inq.interested_model}</p>
-              <p className="text-xs text-gray-500 mt-1.5">{relativeTime(inq.created_at)}</p>
+              <p className="text-xs text-gray-500 mt-1.5" title={formatNepalDateTime(inq.created_at)}>
+                {relativeTime(inq.created_at)}
+              </p>
             </div>
           </div>
           {inq.message && (
@@ -152,7 +173,17 @@ export default function EmployeeDashboard() {
   const [bikesLoading, setBikesLoading] = useState(true);
 
   // ── Form state ──
-  const EMPTY_FORM = { bikeId: '', action: 'arrival', quantity: 1, customerName: '', customerPhone: '' };
+  const EMPTY_FORM = {
+    bikeId: '',
+    action: 'arrival',
+    quantity: 1,
+    customerName: '',
+    customerPhone: '',
+    soldPrice: '',
+    buyerType: '',
+    paymentStatus: '',
+    amountPaid: '',
+  };
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -177,6 +208,24 @@ export default function EmployeeDashboard() {
 
   const set = (field) => (e) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleSoldPriceChange = (e) => {
+    const val = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      soldPrice: val,
+      amountPaid: prev.paymentStatus === 'Fully Paid' ? val : prev.amountPaid,
+    }));
+  };
+
+  const handlePaymentStatusChange = (e) => {
+    const status = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      paymentStatus: status,
+      amountPaid: status === 'Fully Paid' ? prev.soldPrice : (status === 'Pending' && !prev.amountPaid ? '0' : prev.amountPaid),
+    }));
+  };
 
   // Strip every non-digit character as the user types; caps at 10 digits
   const setPhone = (e) => {
@@ -224,12 +273,32 @@ export default function EmployeeDashboard() {
 
   // ─── Update inquiry status ─────────────────────────────────────────────
   const updateInquiryStatus = async (id, status) => {
+    const inq = inquiries.find(i => i.id === id);
+    if (!inq) return;
+
     const { error } = await supabase.from('inquiries').update({ status }).eq('id', id);
     if (error) {
       showToast('Failed to update status', 'error');
     } else {
       showToast('Status updated successfully');
       fetchInquiries();
+
+      // Sync status to Google Sheets non-blockingly
+      try {
+        const { error: syncError } = await supabase.functions.invoke('sync-to-sheets', {
+          body: {
+            type: 'inquiry_status_update',
+            phone: inq.phone,
+            status: status,
+            created_at: inq.created_at,
+          }
+        });
+        if (syncError) {
+          console.warn('[sync-to-sheets] Status sync failed:', syncError.message);
+        }
+      } catch (syncErr) {
+        console.warn('[sync-to-sheets] Status sync network error:', syncErr);
+      }
     }
   };
 
@@ -246,6 +315,44 @@ export default function EmployeeDashboard() {
       if (!form.customerName.trim()) { setFormError('Customer name is required for a sale.'); return; }
       if (!form.customerPhone.trim()) { setFormError('Customer phone is required for a sale.'); return; }
       if (!/^\d{10}$/.test(form.customerPhone)) { setFormError('Phone number must be exactly 10 digits.'); return; }
+
+      const soldPriceNum = Number(form.soldPrice);
+      if (!form.soldPrice || isNaN(soldPriceNum) || soldPriceNum <= 0) {
+        setFormError('Sold price is required and must be greater than 0.');
+        return;
+      }
+      if (!form.buyerType) {
+        setFormError('Buyer type is required for a sale.');
+        return;
+      }
+      if (!form.paymentStatus) {
+        setFormError('Payment status is required for a sale.');
+        return;
+      }
+
+      if (form.paymentStatus === 'Partial') {
+        const amtPaidNum = Number(form.amountPaid);
+        if (form.amountPaid === '' || isNaN(amtPaidNum) || amtPaidNum <= 0) {
+          setFormError('Amount paid is required for partial payment and must be greater than 0.');
+          return;
+        }
+        if (amtPaidNum >= soldPriceNum) {
+          setFormError('Amount paid for partial payment must be less than the sold price.');
+          return;
+        }
+      }
+
+      if (form.paymentStatus === 'Pending') {
+        const amtPaidNum = form.amountPaid === '' ? 0 : Number(form.amountPaid);
+        if (isNaN(amtPaidNum) || amtPaidNum < 0) {
+          setFormError('Amount paid cannot be negative.');
+          return;
+        }
+        if (amtPaidNum >= soldPriceNum) {
+          setFormError('Amount paid cannot equal or exceed sold price for pending payment.');
+          return;
+        }
+      }
     }
 
     // ── Stock check for sales ──
@@ -295,14 +402,28 @@ export default function EmployeeDashboard() {
       //    and are considered successful regardless.
       let syncFailed = false;
       try {
+        const isSale = form.action === 'sale';
+        const soldPriceNum = isSale ? Number(form.soldPrice) : undefined;
+        const finalAmountPaid = isSale
+          ? (form.paymentStatus === 'Fully Paid' ? soldPriceNum : Number(form.amountPaid || 0))
+          : undefined;
+
         const { error: syncError } = await supabase.functions.invoke('sync-to-sheets', {
           body: {
             bike_id:        form.bikeId,
             type:           form.action === 'arrival' ? 'arrival' : 'sale',
             quantity:       qty,
             logged_by:      loggedBy,
-            customer_name:  form.action === 'sale' ? form.customerName.trim()  : undefined,
-            customer_phone: form.action === 'sale' ? form.customerPhone.trim() : undefined,
+            customer_name:  isSale ? form.customerName.trim()  : undefined,
+            customer_phone: isSale ? form.customerPhone.trim() : undefined,
+            sold_price:     soldPriceNum,
+            soldPrice:      soldPriceNum,
+            buyer_type:     isSale ? form.buyerType : undefined,
+            buyerType:      isSale ? form.buyerType : undefined,
+            payment_status: isSale ? form.paymentStatus : undefined,
+            paymentStatus:  isSale ? form.paymentStatus : undefined,
+            amount_paid:    finalAmountPaid,
+            amountPaid:     finalAmountPaid,
             created_at:     new Date().toISOString(),
           },
         });
@@ -549,50 +670,168 @@ export default function EmployeeDashboard() {
 
           {/* Sale-only fields */}
           {form.action === 'sale' && (
-            <div className="space-y-4 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
-              <p className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" />
-                Customer Details
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Customer Name" required>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
-                    <input
-                      className={inputCls + ' pl-9'}
-                      type="text"
-                      placeholder="Full name"
-                      value={form.customerName}
-                      onChange={set('customerName')}
-                      disabled={submitting}
-                      required
-                    />
-                  </div>
-                </Field>
-                <Field label="Customer Phone" required>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
-                    <input
-                      className={inputCls + ' pl-9'}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]{10}"
-                      placeholder="10-digit number"
-                      maxLength={10}
-                      value={form.customerPhone}
-                      onChange={setPhone}
-                      onKeyDown={(e) => {
-                        // Block any key that would push a digit past 10 characters
-                        const isDigit = /^\d$/.test(e.key);
-                        const wouldExceed = form.customerPhone.length >= 10;
-                        if (isDigit && wouldExceed) e.preventDefault();
-                      }}
-                      disabled={submitting}
-                      required
-                    />
+            <div className="space-y-5 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+              {/* Customer Details */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5" />
+                  Customer Details
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Customer Name" required>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                      <input
+                        className={inputCls + ' pl-9'}
+                        type="text"
+                        placeholder="Full name"
+                        value={form.customerName}
+                        onChange={set('customerName')}
+                        disabled={submitting}
+                        required
+                      />
+                    </div>
+                  </Field>
+                  <Field label="Customer Phone" required>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                      <input
+                        className={inputCls + ' pl-9'}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]{10}"
+                        placeholder="10-digit number"
+                        maxLength={10}
+                        value={form.customerPhone}
+                        onChange={setPhone}
+                        onKeyDown={(e) => {
+                          // Block any key that would push a digit past 10 characters
+                          const isDigit = /^\d$/.test(e.key);
+                          const wouldExceed = form.customerPhone.length >= 10;
+                          if (isDigit && wouldExceed) e.preventDefault();
+                        }}
+                        disabled={submitting}
+                        required
+                      />
+                    </div>
+                  </Field>
+                </div>
+              </div>
 
+              {/* Sale & Payment Details */}
+              <div className="space-y-3 pt-4 border-t border-blue-500/15">
+                <p className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Banknote className="w-3.5 h-3.5" />
+                  Sale & Payment Details
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Sold Price */}
+                  <Field label="Sold Price (NPR)" required>
+                    <div className="relative">
+                      <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                      <input
+                        className={inputCls + ' pl-9'}
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 250000"
+                        value={form.soldPrice}
+                        onChange={handleSoldPriceChange}
+                        disabled={submitting}
+                        required
+                      />
+                    </div>
+                  </Field>
+
+                  {/* Buyer Type */}
+                  <Field label="Buyer Type" required>
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                      <select
+                        className={selectCls + ' pl-9'}
+                        value={form.buyerType}
+                        onChange={set('buyerType')}
+                        disabled={submitting}
+                        required
+                      >
+                        <option value="">— Select Buyer Type —</option>
+                        <option value="Individual">Individual</option>
+                        <option value="Corporate">Corporate</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </Field>
+
+                  {/* Payment Status */}
+                  <Field label="Payment Status" required>
+                    <div className="relative">
+                      <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                      <select
+                        className={selectCls + ' pl-9'}
+                        value={form.paymentStatus}
+                        onChange={handlePaymentStatusChange}
+                        disabled={submitting}
+                        required
+                      >
+                        <option value="">— Select Payment Status —</option>
+                        <option value="Fully Paid">Fully Paid</option>
+                        <option value="Partial">Partial</option>
+                        <option value="Pending">Pending</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </Field>
+
+                  {/* Amount Paid (NPR) — only shown if Partial or Pending */}
+                  {(form.paymentStatus === 'Partial' || form.paymentStatus === 'Pending') && (
+                    <Field
+                      label={`Amount Paid (NPR)${form.paymentStatus === 'Partial' ? '' : ' (Optional)'}`}
+                      required={form.paymentStatus === 'Partial'}
+                    >
+                      <div className="relative">
+                        <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                        <input
+                          className={inputCls + ' pl-9'}
+                          type="number"
+                          min="0"
+                          placeholder={form.paymentStatus === 'Pending' ? '0' : 'e.g. 50000'}
+                          value={form.amountPaid}
+                          onChange={set('amountPaid')}
+                          disabled={submitting}
+                          required={form.paymentStatus === 'Partial'}
+                        />
+                      </div>
+                    </Field>
+                  )}
+                </div>
+
+                {/* Calculation summary pill when Sold Price and Payment Status are selected */}
+                {form.soldPrice && form.paymentStatus && (
+                  <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-gray-400">
+                    <span>
+                      Total: <strong className="text-white">NPR {Number(form.soldPrice).toLocaleString('en-IN')}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Paid: <strong className="text-emerald-400">
+                        NPR {(form.paymentStatus === 'Fully Paid'
+                          ? Number(form.soldPrice)
+                          : Number(form.amountPaid || 0)
+                        ).toLocaleString('en-IN')}
+                      </strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Balance: <strong className="text-amber-400">
+                        NPR {Math.max(
+                          0,
+                          Number(form.soldPrice) - (form.paymentStatus === 'Fully Paid'
+                            ? Number(form.soldPrice)
+                            : Number(form.amountPaid || 0))
+                        ).toLocaleString('en-IN')}
+                      </strong>
+                    </span>
                   </div>
-                </Field>
+                )}
               </div>
             </div>
           )}
@@ -682,7 +921,10 @@ export default function EmployeeDashboard() {
                 </div>
 
                 {/* Timestamp */}
-                <div className="shrink-0 text-xs text-gray-600 text-right">
+                <div
+                  className="shrink-0 text-xs text-gray-600 text-right"
+                  title={formatNepalDateTime(log.created_at)}
+                >
                   {relativeTime(log.created_at)}
                 </div>
               </li>

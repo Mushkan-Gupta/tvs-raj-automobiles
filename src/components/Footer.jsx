@@ -103,7 +103,7 @@ export default function Footer() {
 
         {/* Bottom copyright section */}
         <div className="pt-8 border-t border-[#1f293d] flex flex-col sm:flex-row justify-between items-center text-xs text-gray-500 space-y-4 sm:space-y-0">
-          <p>© {new Date().getFullYear()} TVS Raj Automobiles - Lahan, Siraha. All Rights Reserved.</p>
+          <p>© {new Date().toLocaleDateString('en-US', { year: 'numeric', timeZone: 'Asia/Kathmandu' })} TVS Raj Automobiles - Lahan, Siraha. All Rights Reserved.</p>
           <div className="flex space-x-6 text-gray-400">
             <span>Privacy Policy</span>
             <span>•</span>

@@ -11,10 +11,11 @@
 //   6. Return a JSON success/error response
 //
 // Google Sheet tab structure:
-//   "Arrivals" — Date | Bike Name | Quantity | Logged By | New Stock Level
-//   "Sold"     — Date | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | New Stock Level
-//   "Stock"    — Bike Name | Category | Current Quantity | Last Updated
-//                (ONE row per bike; updated in-place, never appended)
+//   "Arrivals"  — Date | Bike Name | Quantity | Logged By | New Stock Level
+//   "Sold"      — Date | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | New Stock Level | Sale ID | Sold Price | Buyer Type | Payment Status | Amount Paid | Balance Due
+//   "Documents" — Sale ID | Buyer Type | [Document Checkboxes] | Handover Ready
+//   "Stock"     — Bike Name | Category | Current Quantity | Last Updated
+//                 (ONE row per bike; updated in-place, never appended)
 //
 // Environment variables expected (set via `supabase secrets set`):
 //   SUPABASE_URL              — auto-injected by Supabase runtime
@@ -69,6 +70,14 @@ Deno.serve(async (req: Request) => {
     phone?: string;
     interested_model?: string;
     message?: string;
+    sold_price?: number;
+    soldPrice?: number;
+    buyer_type?: string;
+    buyerType?: string;
+    payment_status?: string;
+    paymentStatus?: string;
+    amount_paid?: number;
+    amountPaid?: number;
   };
 
   try {
@@ -102,7 +111,7 @@ Deno.serve(async (req: Request) => {
 
     const date = new Date(stockLog.created_at);
     const formattedDate = date.toLocaleString("en-IN", {
-      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kathmandu",
     });
 
     const rowValues = [formattedDate, stockLog.name, stockLog.phone, stockLog.interested_model, stockLog.message];
@@ -119,11 +128,92 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ success: true, message: "Inquiry synced to Google Sheets." });
   }
 
+  // --- Handle 'inquiry_status_update' type specifically ---
+  if (stockLog.type === "inquiry_status_update") {
+    const reqFields = ["type", "phone", "status", "created_at"];
+    for (const field of reqFields) {
+      if (stockLog[field as keyof typeof stockLog] === undefined || stockLog[field as keyof typeof stockLog] === null) {
+        return jsonResponse({ error: `Missing required field for inquiry_status_update: ${field}` }, 400);
+      }
+    }
+
+    const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
+    const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
+    const sheetId = Deno.env.get("GOOGLE_SHEET_ID");
+    if (!clientEmail || !privateKeyPem || !sheetId) {
+      return jsonResponse({ error: "Missing Google Sheets env vars." }, 500);
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    } catch (err) {
+      return jsonResponse({ error: "Failed to authenticate with Google.", detail: String(err) }, 500);
+    }
+
+    const date = new Date(stockLog.created_at);
+    const formattedDate = date.toLocaleString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kathmandu",
+    });
+
+    const getUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Inquiries")}!A:C`;
+    const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!getRes.ok) return jsonResponse({ error: "Failed to read Inquiries tab.", detail: await getRes.text() }, 500);
+
+    const getData = await getRes.json();
+    const rows: string[][] = getData.values ?? [];
+    
+    let rowIndex = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i]?.[0]?.trim() === formattedDate.trim() && rows[i]?.[2]?.trim() === stockLog.phone?.trim()) {
+        rowIndex = i + 1; // 1-based index
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      console.warn(`Inquiry not found in Sheet for phone ${stockLog.phone} at ${formattedDate}`);
+      return jsonResponse({ success: true, message: "Inquiry not found in sheet, skipped update." });
+    }
+
+    const updateRange = `Inquiries!F${rowIndex}:F${rowIndex}`;
+    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
+    const updateRes = await fetch(updateUrl, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ range: updateRange, majorDimension: "ROWS", values: [[stockLog.status]] }),
+    });
+
+    if (!updateRes.ok) {
+      return jsonResponse({ error: "Failed to update inquiry status.", detail: await updateRes.text() }, 500);
+    }
+    return jsonResponse({ success: true, message: "Inquiry status updated in Google Sheets." });
+  }
+
   // Validate required fields
   const required = ["bike_id", "type", "quantity", "logged_by", "created_at"];
   for (const field of required) {
     if (stockLog[field as keyof typeof stockLog] === undefined || stockLog[field as keyof typeof stockLog] === null) {
       return jsonResponse({ error: `Missing required field: ${field}` }, 400);
+    }
+  }
+
+  const isArrival = stockLog.type.toLowerCase() === "arrival";
+
+  // Validate required sale fields when action is "sale" / "sold"
+  if (!isArrival) {
+    const rawSoldPrice = stockLog.sold_price ?? stockLog.soldPrice;
+    const rawBuyerType = stockLog.buyer_type ?? stockLog.buyerType;
+    const rawPaymentStatus = stockLog.payment_status ?? stockLog.paymentStatus;
+
+    if (rawSoldPrice === undefined || rawSoldPrice === null || rawSoldPrice === "" || Number.isNaN(Number(rawSoldPrice))) {
+      return jsonResponse({ error: "Missing or invalid required field for sale: Sold Price" }, 400);
+    }
+    if (!rawBuyerType || String(rawBuyerType).trim() === "") {
+      return jsonResponse({ error: "Missing required field for sale: Buyer Type" }, 400);
+    }
+    if (!rawPaymentStatus || String(rawPaymentStatus).trim() === "") {
+      return jsonResponse({ error: "Missing required field for sale: Payment Status" }, 400);
     }
   }
 
@@ -187,6 +277,7 @@ Deno.serve(async (req: Request) => {
 
   // ============================================================
   // STEP 4: Append a row to the correct log tab ("Arrivals" or "Sold")
+  //         and to "Documents" tab if it is a sale
   // ============================================================
 
   const sheetId = Deno.env.get("GOOGLE_SHEET_ID");
@@ -194,7 +285,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "GOOGLE_SHEET_ID environment variable is missing." }, 500);
   }
 
-  // Format the date/time in IST (UTC+5:30)
+  // Format the date/time in NPT (UTC+5:45)
   // Example output: "23 Jul 2026, 02:41 PM"
   const date = new Date(stockLog.created_at);
   const formattedDate = date.toLocaleString("en-IN", {
@@ -204,44 +295,73 @@ Deno.serve(async (req: Request) => {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-    timeZone: "Asia/Kolkata",
+    timeZone: "Asia/Kathmandu",
   });
 
-  const isArrival = stockLog.type.toLowerCase() === "arrival";
   const customerName  = isArrival ? "" : (stockLog.customer_name  ?? "");
   const customerPhone = isArrival ? "" : (stockLog.customer_phone ?? "");
 
   // Choose target tab and build the appropriate row
   // Arrivals: Date | Bike Name | Quantity | Logged By | New Stock Level
-  // Sold:     Date | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | New Stock Level
+  // Sold:     Date | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | New Stock Level | Sale ID | Sold Price | Buyer Type | Payment Status | Amount Paid | Balance Due
   let tabName: string;
-  let rowValues: (string | number)[];
+  let rowValues: (string | number | boolean)[];
+  let saleId: string | undefined;
+  // deno-lint-ignore no-explicit-any
+  let docAppendData: any = null;
 
   if (isArrival) {
     tabName = "Arrivals";
     rowValues = [
       formattedDate,
       bike.name,
-      stockLog.quantity,
-      stockLog.logged_by,
+      stockLog.quantity!,
+      stockLog.logged_by!,
       bike.quantity,   // new stock level (already updated in DB by the time this runs)
     ];
   } else {
     tabName = "Sold";
+
+    const soldPrice = Number(stockLog.sold_price ?? stockLog.soldPrice);
+    const buyerType = String(stockLog.buyer_type ?? stockLog.buyerType).trim();
+    const paymentStatus = String(stockLog.payment_status ?? stockLog.paymentStatus).trim();
+    const rawAmountPaid = stockLog.amount_paid ?? stockLog.amountPaid;
+    const amountPaid = (rawAmountPaid !== undefined && rawAmountPaid !== null && rawAmountPaid !== "")
+      ? Number(rawAmountPaid)
+      : 0;
+
+    // Generate unique Sale ID: "SALE-" + base36 timestamp
+    saleId = `SALE-${Date.now().toString(36).toUpperCase()}`;
+
+    // Calculate:
+    // finalAmountPaid = (paymentStatus === "Fully Paid") ? soldPrice : amountPaid
+    // balanceDue = soldPrice - finalAmountPaid
+    const finalAmountPaid = paymentStatus === "Fully Paid" ? soldPrice : amountPaid;
+    const balanceDue = soldPrice - finalAmountPaid;
+
+    // Exact column order:
+    // Date, Bike Name, Quantity, Logged By, Customer Name, Customer Phone, New Stock Level, Sale ID, Sold Price, Buyer Type, Payment Status, Amount Paid, Balance Due
+    // (Sale ID onward are new columns H through M — keep existing columns A-G in their current order)
     rowValues = [
       formattedDate,
       bike.name,
-      stockLog.quantity,
-      stockLog.logged_by,
+      stockLog.quantity!,
+      stockLog.logged_by!,
       customerName,
       customerPhone,
       bike.quantity,   // new stock level
+      saleId,
+      soldPrice,
+      buyerType,
+      paymentStatus,
+      finalAmountPaid,
+      balanceDue,
     ];
   }
 
   // Determine the column range for the append call
-  // Arrivals: A–E (5 cols), Sold: A–G (7 cols)
-  const lastCol = isArrival ? "E" : "G";
+  // Arrivals: A–E (5 cols), Sold: A–M (13 cols)
+  const lastCol = isArrival ? "E" : "M";
   const appendUrl =
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName)}!A1:${lastCol}1:append` +
     `?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
@@ -264,6 +384,71 @@ Deno.serve(async (req: Request) => {
   }
 
   const appendData = await appendRes.json();
+
+  // If sale, append a second row to the "Documents" sheet tab using the SAME Sale ID
+  if (!isArrival && saleId) {
+    const buyerType = String(stockLog.buyer_type ?? stockLog.buyerType).trim();
+
+    // Dynamically query row 1 headers of Documents tab to match existing column order if defined
+    let docRowValues: (string | boolean)[] = [];
+    try {
+      const docHeaderUrl =
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!1:1`;
+      const docHeaderRes = await fetch(docHeaderUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (docHeaderRes.ok) {
+        const docHeaderData = await docHeaderRes.json();
+        const headers: string[] = docHeaderData.values?.[0] ?? [];
+
+        if (headers.length > 0) {
+          docRowValues = headers.map((header) => {
+            const h = header.trim().toLowerCase();
+            if (h.includes("sale") && h.includes("id")) return saleId!;
+            if (h.includes("buyer")) return buyerType;
+            if (h.includes("customer") && h.includes("name")) return customerName;
+            if (h.includes("customer") && h.includes("phone")) return customerPhone;
+            if (h.includes("bike")) return bike.name;
+            if (h.includes("date")) return formattedDate;
+            // Default FALSE for all document checkboxes and "Handover Ready"
+            return false;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not read headers from Documents tab:", e);
+    }
+
+    // Fallback if no header row could be retrieved:
+    // [Sale ID, Buyer Type, false (doc checkboxes), false (Handover Ready)]
+    if (docRowValues.length === 0) {
+      docRowValues = [saleId, buyerType, false, false, false, false, false, false];
+    }
+
+    const docAppendUrl =
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!A1:append` +
+      `?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+    const docAppendRes = await fetch(docAppendUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ values: [docRowValues] }),
+    });
+
+    if (!docAppendRes.ok) {
+      const docErrText = await docAppendRes.text();
+      return jsonResponse({
+        error: `Google Sheets append to "Documents" failed.`,
+        detail: docErrText,
+      }, 500);
+    }
+
+    docAppendData = await docAppendRes.json();
+  }
 
   // ============================================================
   // STEP 5: Update the matching row in the "Stock" tab (in-place)
@@ -358,8 +543,12 @@ Deno.serve(async (req: Request) => {
   // ============================================================
   return jsonResponse({
     success: true,
-    message: `Row appended to "${tabName}" tab and Stock tab updated successfully.`,
+    message: isArrival
+      ? `Row appended to "${tabName}" tab and Stock tab updated successfully.`
+      : `Row appended to "Sold" and "Documents" tabs (Sale ID: ${saleId}) and Stock tab updated successfully.`,
+    saleId: saleId ?? null,
     logRange: appendData.updates?.updatedRange ?? "unknown",
+    docRange: docAppendData?.updates?.updatedRange ?? null,
     stockRange: stockUpdateData.updatedRange ?? "unknown",
     bikeName: bike.name,
     category: bike.category,

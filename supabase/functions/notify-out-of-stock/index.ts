@@ -84,10 +84,11 @@ Deno.serve(async (req: Request) => {
   // STEP 3: Build the email HTML body
   // ============================================================
   const today = new Date().toLocaleDateString("en-IN", {
-    weekday: "long",
-    day:     "numeric",
-    month:   "long",
-    year:    "numeric",
+    weekday:  "long",
+    day:      "numeric",
+    month:    "long",
+    year:     "numeric",
+    timeZone: "Asia/Kathmandu",
   });
 
   const isLowStock = alert_type === "low_stock";
