@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   LogOut, TrendingUp, ShoppingCart, AlertCircle, Check,
   ChevronDown, Package, Clock, User, Phone, RefreshCw, MessageSquare,
-  Banknote, Building2, CreditCard,
+  Banknote, Building2, CreditCard, FileText,
 } from 'lucide-react';
 
 // ─── Shared style constants ───────────────────────────────────────────────────
@@ -545,6 +545,31 @@ export default function EmployeeDashboard() {
             <span>Logout</span>
           </button>
         </div>
+      </div>
+
+      {/* ── Navigation Tabs ── */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
+        <Link
+          to="/employee/dashboard"
+          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/40 text-[#0066CC] font-bold shrink-0"
+        >
+          <Package className="w-4 h-4" />
+          <span>Stock Logging</span>
+        </Link>
+        <Link
+          to="/employee/pending-documents"
+          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+        >
+          <FileText className="w-4 h-4" />
+          <span>Pending Documents</span>
+        </Link>
+        <Link
+          to="/employee/pending-payments"
+          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Pending Payments</span>
+        </Link>
       </div>
 
       {showInquiries ? (

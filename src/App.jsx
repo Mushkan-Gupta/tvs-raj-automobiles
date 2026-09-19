@@ -13,6 +13,8 @@ import Contact from './pages/Contact';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeDashboard from './pages/EmployeeDashboard';
+import PendingDocuments from './pages/PendingDocuments';
+import PendingPayments from './pages/PendingPayments';
 import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { MessageSquare } from 'lucide-react';
@@ -39,6 +41,8 @@ export default function App() {
           
           <Route element={<ProtectedRoute allowedRoles={['admin', 'employee']} />}>
             <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
+            <Route path="/employee/pending-documents" element={<PendingDocuments />} />
+            <Route path="/employee/pending-payments" element={<PendingPayments />} />
           </Route>
         </Routes>
       </main>

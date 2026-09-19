@@ -3,9 +3,28 @@
 enabled = true
 verify_jwt = false
 import_map = "./functions/sync-to-sheets/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/sync-to-sheets/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/sync-to-sheets/*.html" ]
+
+[functions.get-pending-documents]
+enabled = true
+verify_jwt = false
+import_map = "./functions/get-pending-documents/deno.json"
+entrypoint = "./functions/get-pending-documents/index.ts"
+
+[functions.update-documents]
+enabled = true
+verify_jwt = false
+import_map = "./functions/update-documents/deno.json"
+entrypoint = "./functions/update-documents/index.ts"
+
+[functions.get-pending-payments]
+enabled = true
+verify_jwt = false
+import_map = "./functions/get-pending-payments/deno.json"
+entrypoint = "./functions/get-pending-payments/index.ts"
+
+[functions.update-payment]
+enabled = true
+verify_jwt = false
+import_map = "./functions/update-payment/deno.json"
+entrypoint = "./functions/update-payment/index.ts"
