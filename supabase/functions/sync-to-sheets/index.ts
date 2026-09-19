@@ -12,7 +12,7 @@
 //
 // Google Sheet tab structure:
 //   "Arrivals"  — Date | Bike Name | Quantity | Logged By | New Stock Level
-//   "Sold"      — Date | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | New Stock Level | Sale ID | Sold Price | Buyer Type | Payment Status | Amount Paid | Balance Due
+//   "Sold"      — Date | Sale ID | Bike Name | Quantity | Logged By | Customer Name | Customer Phone | Sold Price | Buyer Type | Payment Status | Amount Paid | Balance Due | New Stock Level
 //   "Documents" — Sale ID | Buyer Type | [Document Checkboxes] | Handover Ready
 //   "Stock"     — Bike Name | Category | Current Quantity | Last Updated
 //                 (ONE row per bike; updated in-place, never appended)
@@ -339,24 +339,88 @@ Deno.serve(async (req: Request) => {
     const finalAmountPaid = paymentStatus === "Fully Paid" ? soldPrice : amountPaid;
     const balanceDue = soldPrice - finalAmountPaid;
 
-    // Exact column order:
-    // Date, Bike Name, Quantity, Logged By, Customer Name, Customer Phone, New Stock Level, Sale ID, Sold Price, Buyer Type, Payment Status, Amount Paid, Balance Due
-    // (Sale ID onward are new columns H through M — keep existing columns A-G in their current order)
-    rowValues = [
-      formattedDate,
-      bike.name,
-      stockLog.quantity!,
-      stockLog.logged_by!,
-      customerName,
-      customerPhone,
-      bike.quantity,   // new stock level
-      saleId,
-      soldPrice,
-      buyerType,
-      paymentStatus,
-      finalAmountPaid,
-      balanceDue,
-    ];
+    // A map of all values we can place — keyed by canonical field name.
+    // The header-matching logic below picks the right value for each column.
+    const soldValueMap: Record<string, string | number> = {
+      date:         formattedDate,
+      "sale id":    saleId,
+      "bike name":  bike.name,
+      quantity:     stockLog.quantity!,
+      "logged by":  stockLog.logged_by!,
+      "customer name":  customerName,
+      "customer phone": customerPhone,
+      "sold price": soldPrice,
+      "buyer type": buyerType,
+      "payment status": paymentStatus,
+      "amount paid": finalAmountPaid,
+      "balance due": balanceDue,
+      "new stock level": bike.quantity,
+    };
+
+    // ── Fetch the actual header row of the Sold tab ──────────────────────────
+    // This lets us write values into the correct columns regardless of how the
+    // sheet owner has ordered them.
+    let soldHeaders: string[] = [];
+    try {
+      const soldHeaderUrl =
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!1:1`;
+      const soldHeaderRes = await fetch(soldHeaderUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (soldHeaderRes.ok) {
+        const soldHeaderData = await soldHeaderRes.json();
+        soldHeaders = soldHeaderData.values?.[0] ?? [];
+      }
+    } catch (e) {
+      console.warn("Could not read headers from Sold tab:", e);
+    }
+
+    if (soldHeaders.length > 0) {
+      // Map each header to its value using case-insensitive, trimmed matching
+      rowValues = soldHeaders.map((header) => {
+        const h = header.trim().toLowerCase();
+        // Try exact key match first
+        if (soldValueMap[h] !== undefined) return soldValueMap[h];
+        // Fuzzy matches for common header variations
+        if (h.includes("sale") && h.includes("id")) return saleId!;
+        if (h.includes("bike") && h.includes("name")) return bike.name;
+        if (h.includes("customer") && h.includes("name")) return customerName;
+        if (h.includes("customer") && h.includes("phone")) return customerPhone;
+        if (h.includes("logged")) return stockLog.logged_by!;
+        if (h.includes("sold") && h.includes("price")) return soldPrice;
+        if (h.includes("buyer")) return buyerType;
+        if (h.includes("payment") && h.includes("status")) return paymentStatus;
+        if (h.includes("amount") && h.includes("paid")) return finalAmountPaid;
+        if (h.includes("balance")) return balanceDue;
+        if (h.includes("stock") || h.includes("quantity")) {
+          // "quantity" (units sold) vs "new stock level" (current stock after sale)
+          if (h.includes("new") || h.includes("level") || h.includes("stock")) return bike.quantity;
+          return stockLog.quantity!;
+        }
+        if (h.includes("date")) return formattedDate;
+        // Unknown column — leave blank
+        return "";
+      });
+    } else {
+      // Fallback: use the sheet's confirmed column order as documented in the header comment:
+      // Date | Sale ID | Bike Name | Quantity | Logged By | Customer Name | Customer Phone |
+      // Sold Price | Buyer Type | Payment Status | Amount Paid | Balance Due | New Stock Level
+      rowValues = [
+        formattedDate,
+        saleId,
+        bike.name,
+        stockLog.quantity!,
+        stockLog.logged_by!,
+        customerName,
+        customerPhone,
+        soldPrice,
+        buyerType,
+        paymentStatus,
+        finalAmountPaid,
+        balanceDue,
+        bike.quantity,   // New Stock Level
+      ];
+    }
   }
 
   // Determine the column range for the append call
@@ -384,12 +448,39 @@ Deno.serve(async (req: Request) => {
   }
 
   const appendData = await appendRes.json();
-
-  // If sale, append a second row to the "Documents" sheet tab using the SAME Sale ID
   if (!isArrival && saleId) {
     const buyerType = String(stockLog.buyer_type ?? stockLog.buyerType).trim();
+    const isIndividual = buyerType.toLowerCase() === "individual";
 
-    // Dynamically query row 1 headers of Documents tab to match existing column order if defined
+    // ── Individual-specific document columns (exact real header names) ────────
+    // Citizenship / NID / Passport | Driving License | Passport Photos | PAN Card
+    // ── Corporate-specific document columns ───────────────────────────────────
+    // Company Registration Certificate | Company PAN/VAT Certificate |
+    // Board Authorization Letter | Authorized Signatory ID
+    // ── Common columns (both buyer types) ─────────────────────────────────────
+    // Payment Receipt | Insurance Collected | Handover Ready
+
+    // Returns true if this header belongs to an Individual-specific document column
+    function isIndividualDocCol(h: string): boolean {
+      return (
+        h.includes("citizenship") || h.includes("nid") ||
+        h.includes("passport") ||
+        h.includes("driving") || h.includes("license") ||
+        (h.includes("pan") && !h.includes("vat") && !h.includes("company"))
+      );
+    }
+
+    // Returns true if this header belongs to a Corporate-specific document column
+    function isCorporateDocCol(h: string): boolean {
+      return (
+        h.includes("registration") ||
+        h.includes("company") ||
+        (h.includes("pan") && h.includes("vat")) ||
+        h.includes("board") || h.includes("authorization") || h.includes("signatory")
+      );
+    }
+
+    // Dynamically query row 1 headers of Documents tab to match existing column order
     let docRowValues: (string | boolean)[] = [];
     try {
       const docHeaderUrl =
@@ -405,13 +496,29 @@ Deno.serve(async (req: Request) => {
         if (headers.length > 0) {
           docRowValues = headers.map((header) => {
             const h = header.trim().toLowerCase();
+
+            // System / metadata columns — fill with actual values
             if (h.includes("sale") && h.includes("id")) return saleId!;
-            if (h.includes("buyer")) return buyerType;
+            if (h.includes("buyer") && h.includes("type")) return buyerType;
             if (h.includes("customer") && h.includes("name")) return customerName;
             if (h.includes("customer") && h.includes("phone")) return customerPhone;
             if (h.includes("bike")) return bike.name;
             if (h.includes("date")) return formattedDate;
-            // Default FALSE for all document checkboxes and "Handover Ready"
+
+            // Common document checkboxes — always start as false
+            if (h.includes("handover")) return false;
+            if (h.includes("payment") && h.includes("receipt")) return false;
+            if (h.includes("insurance")) return false;
+
+            // Buyer-type-specific columns:
+            // Set to false for the matching buyer type, blank ("") for the other type
+            const indCol = isIndividualDocCol(h);
+            const corpCol = isCorporateDocCol(h);
+
+            if (indCol && !corpCol) return isIndividual ? false : "";
+            if (corpCol && !indCol) return isIndividual ? "" : false;
+
+            // Ambiguous or genuinely unknown column — default false
             return false;
           });
         }
@@ -420,10 +527,28 @@ Deno.serve(async (req: Request) => {
       console.warn("Could not read headers from Documents tab:", e);
     }
 
-    // Fallback if no header row could be retrieved:
-    // [Sale ID, Buyer Type, false (doc checkboxes), false (Handover Ready)]
+    // Fallback if headers could not be fetched.
+    // Real column order:
+    // Sale ID | Buyer Type | Citizenship/NID/Passport | Driving License | Passport Photos |
+    // PAN Card | Company Registration Certificate | Company PAN/VAT Certificate |
+    // Board Authorization Letter | Authorized Signatory ID |
+    // Payment Receipt | Insurance Collected | Handover Ready
     if (docRowValues.length === 0) {
-      docRowValues = [saleId, buyerType, false, false, false, false, false, false];
+      docRowValues = [
+        saleId,                       // Sale ID
+        buyerType,                    // Buyer Type
+        isIndividual ? false : "",    // Citizenship / NID / Passport
+        isIndividual ? false : "",    // Driving License
+        isIndividual ? false : "",    // Passport Photos
+        isIndividual ? false : "",    // PAN Card
+        isIndividual ? "" : false,    // Company Registration Certificate
+        isIndividual ? "" : false,    // Company PAN/VAT Certificate
+        isIndividual ? "" : false,    // Board Authorization Letter
+        isIndividual ? "" : false,    // Authorized Signatory ID
+        false,                        // Payment Receipt
+        false,                        // Insurance Collected
+        false,                        // Handover Ready
+      ];
     }
 
     const docAppendUrl =

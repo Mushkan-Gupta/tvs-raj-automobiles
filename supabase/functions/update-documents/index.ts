@@ -29,14 +29,46 @@ function colToLetter(colIndex: number): string {
   return letter;
 }
 
+// ── Buyer-type document classification ────────────────────────────────────────
+// Real Documents tab headers:
+// Sale ID | Buyer Type | Citizenship / NID / Passport | Driving License |
+// Passport Photos | PAN Card | Company Registration Certificate |
+// Company PAN/VAT Certificate | Board Authorization Letter |
+// Authorized Signatory ID | Payment Receipt | Insurance Collected | Handover Ready
+
+function isIndividualDocCol(h: string): boolean {
+  const lh = h.trim().toLowerCase();
+  return (
+    lh.includes("citizenship") || lh.includes("nid") ||
+    lh.includes("passport") ||
+    lh.includes("driving") || lh.includes("license") ||
+    (lh.includes("pan") && !lh.includes("vat") && !lh.includes("company"))
+  );
+}
+
+function isCorporateDocCol(h: string): boolean {
+  const lh = h.trim().toLowerCase();
+  return (
+    lh.includes("registration") ||
+    lh.includes("company") ||
+    (lh.includes("pan") && lh.includes("vat")) ||
+    lh.includes("board") || lh.includes("authorization") || lh.includes("signatory")
+  );
+}
+
+function isCommonDocCol(h: string): boolean {
+  const lh = h.trim().toLowerCase();
+  return lh.includes("payment") || lh.includes("insurance");
+}
+
 function isRequiredDocForBuyer(header: string, buyerType: string): boolean {
   const h = header.trim().toLowerCase();
-  const bt = buyerType.trim().toLowerCase();
+  const isIndividual = buyerType.trim().toLowerCase() === "individual";
 
-  // Columns that are NOT document requirements:
+  // Skip non-document metadata columns
   if (
     (h.includes("sale") && h.includes("id")) ||
-    h === "buyer type" ||
+    (h.includes("buyer") && h.includes("type")) ||
     h.includes("customer") ||
     h.includes("bike") ||
     h === "date" ||
@@ -48,31 +80,17 @@ function isRequiredDocForBuyer(header: string, buyerType: string): boolean {
     return false;
   }
 
-  // Common requirements for all buyer types:
-  if (h.includes("payment") || h.includes("insurance")) {
-    return true;
-  }
+  // Common requirements for all buyer types
+  if (isCommonDocCol(h)) return true;
 
-  // Explicit buyer type annotations in header:
-  if (h.includes("(individual)") || h.includes("individual")) {
-    return bt === "individual";
-  }
-  if (h.includes("(corporate)") || h.includes("corporate")) {
-    return bt === "corporate";
-  }
+  // Buyer-type-specific: return true only if it matches THIS buyer's type
+  const indCol = isIndividualDocCol(h);
+  const corpCol = isCorporateDocCol(h);
 
-  // Semantic document names:
-  const individualKeywords = ["citizenship", "photo", "license", "passport"];
-  const corporateKeywords = ["registration", "company", "pan", "vat", "tax", "authorization"];
+  if (indCol && !corpCol) return isIndividual;
+  if (corpCol && !indCol) return !isIndividual;
 
-  if (individualKeywords.some((k) => h.includes(k))) {
-    return bt === "individual";
-  }
-  if (corporateKeywords.some((k) => h.includes(k))) {
-    return bt === "corporate";
-  }
-
-  // Generic document column not exclusive to other buyer type
+  // Unknown / ambiguous column — include for everyone
   return true;
 }
 

@@ -31,26 +31,47 @@ function Toast({ toast }) {
   );
 }
 
+// ── Buyer-type document column classification ─────────────────────────────────
+// Real Documents tab columns:
+// Individual: Citizenship / NID / Passport | Driving License | Passport Photos | PAN Card
+// Corporate:  Company Registration Certificate | Company PAN/VAT Certificate |
+//             Board Authorization Letter | Authorized Signatory ID
+// Common:     Payment Receipt | Insurance Collected
+
+function isIndividualDocCol(name) {
+  const h = (name || '').trim().toLowerCase();
+  return (
+    h.includes('citizenship') || h.includes('nid') ||
+    h.includes('passport') ||
+    h.includes('driving') || h.includes('license') ||
+    (h.includes('pan') && !h.includes('vat') && !h.includes('company'))
+  );
+}
+
+function isCorporateDocCol(name) {
+  const h = (name || '').trim().toLowerCase();
+  return (
+    h.includes('registration') ||
+    h.includes('company') ||
+    (h.includes('pan') && h.includes('vat')) ||
+    h.includes('board') || h.includes('authorization') || h.includes('signatory')
+  );
+}
+
+function isCommonDocCol(name) {
+  const h = (name || '').trim().toLowerCase();
+  return h.includes('payment') || h.includes('insurance');
+}
+
 // Determine if a document checkbox column is relevant to the given buyer type
 function isDocRelevantForBuyer(docName, buyerType) {
-  const d = (docName || '').trim().toLowerCase();
-  const bt = (buyerType || 'individual').trim().toLowerCase();
-
-  // Common requirements relevant to everyone
-  if (d.includes('payment') || d.includes('insurance')) return true;
-
-  // Explicit annotations
-  if (d.includes('(individual)') || d.includes('individual')) return bt === 'individual';
-  if (d.includes('(corporate)') || d.includes('corporate')) return bt === 'corporate';
-
-  // Keyword categorization
-  const indKeywords = ['citizenship', 'photo', 'license', 'passport'];
-  const corpKeywords = ['registration', 'company', 'pan', 'vat', 'tax', 'authorization'];
-
-  if (indKeywords.some((k) => d.includes(k))) return bt === 'individual';
-  if (corpKeywords.some((k) => d.includes(k))) return bt === 'corporate';
-
-  return true;
+  const isIndividual = (buyerType || 'individual').trim().toLowerCase() === 'individual';
+  if (isCommonDocCol(docName)) return true;
+  const indCol = isIndividualDocCol(docName);
+  const corpCol = isCorporateDocCol(docName);
+  if (indCol && !corpCol) return isIndividual;
+  if (corpCol && !indCol) return !isIndividual;
+  return true; // unknown column — show for everyone
 }
 
 export default function PendingDocuments() {
@@ -347,13 +368,23 @@ export default function PendingDocuments() {
             // Filter relevant document keys for this buyer type
             const relevantKeys = allCheckKeys.length > 0
               ? allCheckKeys.filter((key) => isDocRelevantForBuyer(key, doc.buyerType))
-              : [
-                  ...(doc.buyerType?.toLowerCase() === 'corporate'
-                    ? ['Company Registration', 'PAN/VAT Certificate', 'Tax Clearance', 'Authorization Letter']
-                    : ['Nepali Citizenship Card', 'Passport Photos', 'Driving License']),
-                  'Payment Receipt',
-                  'Insurance Collected',
-                ];
+              : (doc.buyerType?.toLowerCase() === 'corporate'
+                  ? [
+                      'Company Registration Certificate',
+                      'Company PAN/VAT Certificate',
+                      'Board Authorization Letter',
+                      'Authorized Signatory ID',
+                      'Payment Receipt',
+                      'Insurance Collected',
+                    ]
+                  : [
+                      'Citizenship / NID / Passport',
+                      'Driving License',
+                      'Passport Photos',
+                      'PAN Card',
+                      'Payment Receipt',
+                      'Insurance Collected',
+                    ]);
 
             // Calculate progress
             const totalRequired = relevantKeys.length;

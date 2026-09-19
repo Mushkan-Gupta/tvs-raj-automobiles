@@ -117,6 +117,47 @@ Deno.serve(async (req: Request) => {
     checkboxCols.push({ name: h, index: c });
   }
 
+  // ── Buyer-type column classification helpers ─────────────────────────────────
+  // Individual document columns: Citizenship/NID/Passport, Driving License,
+  //                               Passport Photos, PAN Card
+  // Corporate document columns: Company Registration Certificate,
+  //                              Company PAN/VAT Certificate,
+  //                              Board Authorization Letter, Authorized Signatory ID
+  // Common (both): Payment Receipt, Insurance Collected
+  function isIndividualDocCol(h: string): boolean {
+    const lh = h.trim().toLowerCase();
+    return (
+      lh.includes("citizenship") || lh.includes("nid") ||
+      lh.includes("passport") ||
+      lh.includes("driving") || lh.includes("license") ||
+      (lh.includes("pan") && !lh.includes("vat") && !lh.includes("company"))
+    );
+  }
+
+  function isCorporateDocCol(h: string): boolean {
+    const lh = h.trim().toLowerCase();
+    return (
+      lh.includes("registration") ||
+      lh.includes("company") ||
+      (lh.includes("pan") && lh.includes("vat")) ||
+      lh.includes("board") || lh.includes("authorization") || lh.includes("signatory")
+    );
+  }
+
+  function isCommonDocCol(h: string): boolean {
+    const lh = h.trim().toLowerCase();
+    return lh.includes("payment") || lh.includes("insurance");
+  }
+
+  // Returns true if the checkbox column should be shown for the given buyer type
+  function isRelevantForBuyer(h: string, buyerType: string): boolean {
+    const isIndividual = buyerType.trim().toLowerCase() === "individual";
+    if (isCommonDocCol(h)) return true;
+    if (isIndividualDocCol(h) && !isCorporateDocCol(h)) return isIndividual;
+    if (isCorporateDocCol(h) && !isIndividualDocCol(h)) return !isIndividual;
+    return true; // unknown column — include for everyone
+  }
+
   const pendingDocuments = [];
 
   for (let r = 1; r < docRows.length; r++) {
@@ -137,8 +178,10 @@ Deno.serve(async (req: Request) => {
     const customerName = (customerNameIdx !== -1 ? row[customerNameIdx]?.trim() : "") || lookedUp?.customerName || "—";
     const bikeName = (bikeNameIdx !== -1 ? row[bikeNameIdx]?.trim() : "") || lookedUp?.bikeName || "—";
 
+    // Build checkboxes, including ONLY columns relevant to this row's buyer type
     const checkboxes: Record<string, boolean> = {};
     for (const col of checkboxCols) {
+      if (!isRelevantForBuyer(col.name, buyerType)) continue;
       const cellVal = (row[col.index] ?? "").toString().trim().toUpperCase();
       checkboxes[col.name] = cellVal === "TRUE" || cellVal === "YES" || cellVal === "1";
     }
