@@ -1,4 +1,3 @@
-
 [functions.sync-to-sheets]
 enabled = true
 verify_jwt = false
@@ -28,3 +27,27 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/update-payment/deno.json"
 entrypoint = "./functions/update-payment/index.ts"
+
+[functions.get-admin-overview]
+enabled = true
+verify_jwt = false
+import_map = "./functions/get-admin-overview/deno.json"
+entrypoint = "./functions/get-admin-overview/index.ts"
+
+[functions.create-employee]
+enabled = true
+verify_jwt = false
+import_map = "./functions/create-employee/deno.json"
+entrypoint = "./functions/create-employee/index.ts"
+
+[functions.list-employees]
+enabled = true
+verify_jwt = false
+import_map = "./functions/list-employees/deno.json"
+entrypoint = "./functions/list-employees/index.ts"
+
+[functions.update-employee-status]
+enabled = true
+verify_jwt = false
+import_map = "./functions/update-employee-status/deno.json"
+entrypoint = "./functions/update-employee-status/index.ts"

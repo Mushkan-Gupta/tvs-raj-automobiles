@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileText, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Package, FileText, CreditCard, Users } from 'lucide-react';
 
 export default function AdminNav({ pendingDocsCount, pendingPaymentsCount }) {
   const location = useLocation();
@@ -18,6 +18,12 @@ export default function AdminNav({ pendingDocsCount, pendingPaymentsCount }) {
       path: '/admin/dashboard',
       icon: Package,
       active: currentPath === '/admin/dashboard',
+    },
+    {
+      name: 'Employees',
+      path: '/admin/employees',
+      icon: Users,
+      active: currentPath === '/admin/employees',
     },
     {
       name: 'Pending Documents',
