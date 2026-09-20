@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Pencil, Trash2, X, Check, AlertCircle, ChevronDown } from 'lucide-react';
+import AdminNav from '../components/AdminNav';
 
 // ─── Constants ───
 const CATEGORIES = ['Sports', 'Naked', 'Commuter', 'Cruiser', 'Scooter', 'Electric'];
@@ -377,6 +378,9 @@ export default function AdminDashboard() {
           </button>
         </div>
       </div>
+
+      {/* ── Navigation Tabs ── */}
+      <AdminNav />
 
       {/* ── Bikes Table ── */}
       {loading ? (

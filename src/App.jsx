@@ -12,6 +12,7 @@ import About from './pages/About';
 import Contact from './pages/Contact';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminOverview from './pages/AdminOverview';
 import EmployeeDashboard from './pages/EmployeeDashboard';
 import PendingDocuments from './pages/PendingDocuments';
 import PendingPayments from './pages/PendingPayments';
@@ -37,6 +38,7 @@ export default function App() {
           
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/overview" element={<AdminOverview />} />
           </Route>
           
           <Route element={<ProtectedRoute allowedRoles={['admin', 'employee']} />}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
+import AdminNav from '../components/AdminNav';
 import {
   CreditCard, CheckCircle2, Clock, RefreshCw, AlertCircle, Check,
   User, Bike, Search, LogOut, Package,
@@ -31,7 +32,7 @@ function Toast({ toast }) {
 }
 
 export default function PendingPayments() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const navigate = useNavigate();
 
   const [payments, setPayments] = useState([]);
@@ -237,34 +238,38 @@ export default function PendingPayments() {
       </div>
 
       {/* ── Navigation Tabs ── */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
-        <Link
-          to="/employee/dashboard"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <Package className="w-4 h-4" />
-          <span>Stock Logging</span>
-        </Link>
-        <Link
-          to="/employee/pending-documents"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <FileText className="w-4 h-4" />
-          <span>Pending Documents</span>
-        </Link>
-        <Link
-          to="/employee/pending-payments"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 font-bold shrink-0"
-        >
-          <CreditCard className="w-4 h-4" />
-          <span>Pending Payments</span>
-          {payments.length > 0 && (
-            <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-black">
-              {payments.length}
-            </span>
-          )}
-        </Link>
-      </div>
+      {role === 'admin' ? (
+        <AdminNav pendingPaymentsCount={payments.length} />
+      ) : (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
+          <Link
+            to="/employee/dashboard"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+          >
+            <Package className="w-4 h-4" />
+            <span>Stock Logging</span>
+          </Link>
+          <Link
+            to="/employee/pending-documents"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Pending Documents</span>
+          </Link>
+          <Link
+            to="/employee/pending-payments"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 font-bold shrink-0"
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Pending Payments</span>
+            {payments.length > 0 && (
+              <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-black">
+                {payments.length}
+              </span>
+            )}
+          </Link>
+        </div>
+      )}
 
       {/* ── Metric Summary Pill ── */}
       {payments.length > 0 && (

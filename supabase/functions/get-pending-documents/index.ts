@@ -183,6 +183,8 @@ Deno.serve(async (req: Request) => {
     for (const col of checkboxCols) {
       if (!isRelevantForBuyer(col.name, buyerType)) continue;
       const cellVal = (row[col.index] ?? "").toString().trim().toUpperCase();
+      // Do not include columns marked "Not Required" as checkboxes
+      if (cellVal === "NOT REQUIRED") continue;
       checkboxes[col.name] = cellVal === "TRUE" || cellVal === "YES" || cellVal === "1";
     }
 

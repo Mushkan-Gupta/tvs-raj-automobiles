@@ -511,12 +511,12 @@ Deno.serve(async (req: Request) => {
             if (h.includes("insurance")) return false;
 
             // Buyer-type-specific columns:
-            // Set to false for the matching buyer type, blank ("") for the other type
+            // Set to false for the matching buyer type, "Not Required" for the other type
             const indCol = isIndividualDocCol(h);
             const corpCol = isCorporateDocCol(h);
 
-            if (indCol && !corpCol) return isIndividual ? false : "";
-            if (corpCol && !indCol) return isIndividual ? "" : false;
+            if (indCol && !corpCol) return isIndividual ? false : "Not Required";
+            if (corpCol && !indCol) return isIndividual ? "Not Required" : false;
 
             // Ambiguous or genuinely unknown column — default false
             return false;
@@ -535,19 +535,19 @@ Deno.serve(async (req: Request) => {
     // Payment Receipt | Insurance Collected | Handover Ready
     if (docRowValues.length === 0) {
       docRowValues = [
-        saleId,                       // Sale ID
-        buyerType,                    // Buyer Type
-        isIndividual ? false : "",    // Citizenship / NID / Passport
-        isIndividual ? false : "",    // Driving License
-        isIndividual ? false : "",    // Passport Photos
-        isIndividual ? false : "",    // PAN Card
-        isIndividual ? "" : false,    // Company Registration Certificate
-        isIndividual ? "" : false,    // Company PAN/VAT Certificate
-        isIndividual ? "" : false,    // Board Authorization Letter
-        isIndividual ? "" : false,    // Authorized Signatory ID
-        false,                        // Payment Receipt
-        false,                        // Insurance Collected
-        false,                        // Handover Ready
+        saleId,                                // Sale ID
+        buyerType,                             // Buyer Type
+        isIndividual ? false : "Not Required", // Citizenship / NID / Passport
+        isIndividual ? false : "Not Required", // Driving License
+        isIndividual ? false : "Not Required", // Passport Photos
+        isIndividual ? false : "Not Required", // PAN Card
+        isIndividual ? "Not Required" : false, // Company Registration Certificate
+        isIndividual ? "Not Required" : false, // Company PAN/VAT Certificate
+        isIndividual ? "Not Required" : false, // Board Authorization Letter
+        isIndividual ? "Not Required" : false, // Authorized Signatory ID
+        false,                                 // Payment Receipt
+        false,                                 // Insurance Collected
+        false,                                 // Handover Ready
       ];
     }
 

@@ -192,7 +192,11 @@ Deno.serve(async (req: Request) => {
   for (const [colName, val] of Object.entries(updatedFields)) {
     const colIdx = docHeaders.findIndex((h) => h.toLowerCase() === colName.trim().toLowerCase());
     if (colIdx !== -1) {
-      currentRow[colIdx] = Boolean(val);
+      // Do not overwrite cells that are marked "Not Required"
+      const existing = currentRow[colIdx]?.toString().trim().toUpperCase();
+      if (existing !== "NOT REQUIRED") {
+        currentRow[colIdx] = Boolean(val);
+      }
     }
   }
 
@@ -226,7 +230,10 @@ Deno.serve(async (req: Request) => {
     const h = docHeaders[c];
     if (isRequiredDocForBuyer(h, buyerType)) {
       const cellVal = currentRow[c];
-      const isChecked = cellVal === true || cellVal?.toString().trim().toUpperCase() === "TRUE";
+      const cellStr = cellVal?.toString().trim().toUpperCase();
+      // Ensure any column containing "Not Required" is never treated as an unfulfilled requirement
+      if (cellStr === "NOT REQUIRED") continue;
+      const isChecked = cellVal === true || cellStr === "TRUE";
       if (!isChecked) {
         isHandoverReady = false;
         break;

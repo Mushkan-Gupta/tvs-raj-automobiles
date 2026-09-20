@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
+import AdminNav from '../components/AdminNav';
 import {
   FileText, CheckCircle2, Clock, RefreshCw, AlertCircle, Check,
   User, Bike, ShieldCheck, Search,
@@ -75,7 +76,7 @@ function isDocRelevantForBuyer(docName, buyerType) {
 }
 
 export default function PendingDocuments() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const navigate = useNavigate();
 
   const [documents, setDocuments] = useState([]);
@@ -279,34 +280,38 @@ export default function PendingDocuments() {
       </div>
 
       {/* ── Navigation Tabs ── */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
-        <Link
-          to="/employee/dashboard"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <Package className="w-4 h-4" />
-          <span>Stock Logging</span>
-        </Link>
-        <Link
-          to="/employee/pending-documents"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/40 text-[#0066CC] font-bold shrink-0"
-        >
-          <FileText className="w-4 h-4" />
-          <span>Pending Documents</span>
-          {documents.length > 0 && (
-            <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-[#0066CC] text-white">
-              {documents.length}
-            </span>
-          )}
-        </Link>
-        <Link
-          to="/employee/pending-payments"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <CreditCard className="w-4 h-4" />
-          <span>Pending Payments</span>
-        </Link>
-      </div>
+      {role === 'admin' ? (
+        <AdminNav pendingDocsCount={documents.length} />
+      ) : (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
+          <Link
+            to="/employee/dashboard"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+          >
+            <Package className="w-4 h-4" />
+            <span>Stock Logging</span>
+          </Link>
+          <Link
+            to="/employee/pending-documents"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/40 text-[#0066CC] font-bold shrink-0"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Pending Documents</span>
+            {documents.length > 0 && (
+              <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-[#0066CC] text-white">
+                {documents.length}
+              </span>
+            )}
+          </Link>
+          <Link
+            to="/employee/pending-payments"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Pending Payments</span>
+          </Link>
+        </div>
+      )}
 
       {/* ── Search & Filter Controls ── */}
       <div className="flex flex-col sm:flex-row gap-3">
