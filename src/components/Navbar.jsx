@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Menu, X, Bike, Phone, MessageSquare } from 'lucide-react';
-import { showroomInfo } from '../data/bikes';
+import { Menu, X, Bike, Phone, MessageSquare, Lock } from 'lucide-react';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,17 +52,26 @@ export default function Navbar() {
             ))}
           </nav>
 
-          {/* CTA Buttons */}
-          <div className="hidden lg:flex items-center space-x-3">
+          {/* Right Actions: WhatsApp CTA + subtle Staff Login */}
+          <div className="hidden md:flex items-center space-x-3">
             <a
               href="https://wa.me/9779819789215"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg border border-[#0066CC]/40 bg-[#0066CC]/10 text-white text-sm font-medium hover:bg-[#0066CC] transition-all min-h-[40px]"
+              className="hidden lg:flex items-center space-x-2 px-4 py-2 rounded-lg border border-[#0066CC]/40 bg-[#0066CC]/10 text-white text-sm font-medium hover:bg-[#0066CC] transition-all min-h-[40px]"
             >
               <MessageSquare className="w-4 h-4 text-emerald-400" />
               <span>WhatsApp</span>
             </a>
+
+            <Link
+              to="/admin-login"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] border border-[#1f293d]/70 hover:border-[#0066CC]/40 transition-all"
+              title="Staff & Admin Portal"
+            >
+              <Lock className="w-3.5 h-3.5 text-gray-400" />
+              <span>Staff Login</span>
+            </Link>
           </div>
 
           {/* Mobile Menu Toggle Button */}
@@ -115,6 +123,14 @@ export default function Navbar() {
               <MessageSquare className="w-4 h-4" />
               <span>Chat on WhatsApp (+977 9819789215)</span>
             </a>
+            <Link
+              to="/admin-login"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center justify-center space-x-1.5 py-2.5 text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] rounded-lg border border-[#1f293d] transition-colors"
+            >
+              <Lock className="w-3.5 h-3.5 text-gray-400" />
+              <span>Staff Login</span>
+            </Link>
           </div>
         </div>
       )}

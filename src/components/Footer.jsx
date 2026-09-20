@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Bike, MapPin, Phone, Mail, Clock, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Bike, MapPin, Phone, Mail, Clock, ShieldCheck, ChevronRight, Lock } from 'lucide-react';
 import { showroomInfo } from '../data/bikes';
 
 export default function Footer() {
@@ -104,12 +104,20 @@ export default function Footer() {
         {/* Bottom copyright section */}
         <div className="pt-8 border-t border-[#1f293d] flex flex-col sm:flex-row justify-between items-center text-xs text-gray-500 space-y-4 sm:space-y-0">
           <p>© {new Date().toLocaleDateString('en-US', { year: 'numeric', timeZone: 'Asia/Kathmandu' })} TVS Raj Automobiles - Lahan, Siraha. All Rights Reserved.</p>
-          <div className="flex space-x-6 text-gray-400">
+          <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-2 text-gray-400">
             <span>Privacy Policy</span>
             <span>•</span>
             <span>Terms of Service</span>
             <span>•</span>
             <span>Showroom Location</span>
+            <span>•</span>
+            <Link
+              to="/admin-login"
+              className="hover:text-[#0066CC] transition-colors inline-flex items-center space-x-1 text-gray-400"
+            >
+              <Lock className="w-3 h-3 text-gray-500" />
+              <span>Staff Login</span>
+            </Link>
           </div>
         </div>
       </div>
