@@ -29,44 +29,64 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({
-      error: "Server configuration error: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.",
+      error: "Server configuration error: missing SUPABASE_URL, SUPABASE_ANON_KEY, or SUPABASE_SERVICE_ROLE_KEY.",
     }, 500);
   }
 
-  // Create admin client with service_role privileges
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  // ── 1. Verify Caller is Authenticated Admin ──
+  // ── 1. Extract Bearer token ──────────────────────────────────────────────
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return jsonResponse({ error: "Unauthorized: Missing or invalid Authorization header." }, 401);
   }
-
   const token = authHeader.replace("Bearer ", "").trim();
-  const { data: callerData, error: callerError } = await supabaseAdmin.auth.getUser(token);
+
+  // ── 2. Validate JWT using anon-key client + caller's token ───────────────
+  // IMPORTANT: We must use createClient with the ANON key and pass the user's
+  // token via the Authorization header so Supabase correctly identifies the
+  // calling user. Using the service-role client for getUser() does NOT work —
+  // it ignores the token and resolves to null/service account instead.
+  const supabaseForAuth = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data: callerData, error: callerError } = await supabaseForAuth.auth.getUser();
 
   if (callerError || !callerData?.user) {
+    console.error("[create-employee] Token validation failed:", callerError?.message);
     return jsonResponse({ error: "Unauthorized: Invalid or expired session token." }, 401);
   }
 
   const callerUser = callerData.user;
+
+  // ── 3. Role check using service-role client (bypasses RLS) ───────────────
+  // We switch to the service-role client here so the user_roles lookup is
+  // never blocked by Row Level Security policies on that table.
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
   const { data: roleData, error: roleError } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("id", callerUser.id)
     .single();
 
+  // Diagnostic log — visible in: supabase functions logs create-employee
+  console.error(
+    `[create-employee] Admin check — user_id: ${callerUser.id} | fetched role: ${roleData?.role ?? "NULL"} | roleError: ${roleError?.message ?? "none"}`
+  );
+
   if (roleError || roleData?.role !== "admin") {
     return jsonResponse({ error: "Forbidden: Admin privileges required." }, 403);
   }
 
-  // ── 2. Parse & Validate Payload ──
+  // ── 4. Parse & Validate Payload ──────────────────────────────────────────
   let body: { email?: string; password?: string; fullName?: string };
   try {
     body = await req.json();
@@ -90,7 +110,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Full name is required." }, 400);
   }
 
-  // ── 3. Create Auth User via Service Role ──
+  // ── 5. Create Auth User via Service Role ─────────────────────────────────
   const { data: newUserData, error: createError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -107,7 +127,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "User creation failed unexpectedly." }, 500);
   }
 
-  // ── 4. Assign 'employee' Role in user_roles ──
+  // ── 6. Assign 'employee' Role in user_roles ───────────────────────────────
   const { error: roleInsertError } = await supabaseAdmin
     .from("user_roles")
     .insert([{ id: newUser.id, role: "employee" }]);

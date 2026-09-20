@@ -25,43 +25,64 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({
-      error: "Server configuration error: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.",
+      error: "Server configuration error: missing SUPABASE_URL, SUPABASE_ANON_KEY, or SUPABASE_SERVICE_ROLE_KEY.",
     }, 500);
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  // ── 1. Verify Caller is Authenticated Admin ──
+  // ── 1. Extract Bearer token ──────────────────────────────────────────────
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return jsonResponse({ error: "Unauthorized: Missing or invalid Authorization header." }, 401);
   }
-
   const token = authHeader.replace("Bearer ", "").trim();
-  const { data: callerData, error: callerError } = await supabaseAdmin.auth.getUser(token);
+
+  // ── 2. Validate JWT using anon-key client + caller's token ───────────────
+  // IMPORTANT: We must use createClient with the ANON key and pass the user's
+  // token via the Authorization header so Supabase correctly identifies the
+  // calling user. Using the service-role client for getUser() does NOT work —
+  // it ignores the token and resolves to null/service account instead.
+  const supabaseForAuth = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data: callerData, error: callerError } = await supabaseForAuth.auth.getUser();
 
   if (callerError || !callerData?.user) {
+    console.error("[list-employees] Token validation failed:", callerError?.message);
     return jsonResponse({ error: "Unauthorized: Invalid or expired session token." }, 401);
   }
 
   const callerUser = callerData.user;
+
+  // ── 3. Role check using service-role client (bypasses RLS) ───────────────
+  // We switch to the service-role client here so the user_roles lookup is
+  // never blocked by Row Level Security policies on that table.
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
   const { data: roleData, error: roleError } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("id", callerUser.id)
     .single();
 
+  // Diagnostic log — visible in: supabase functions logs list-employees
+  console.error(
+    `[list-employees] Admin check — user_id: ${callerUser.id} | fetched role: ${roleData?.role ?? "NULL"} | roleError: ${roleError?.message ?? "none"}`
+  );
+
   if (roleError || roleData?.role !== "admin") {
     return jsonResponse({ error: "Forbidden: Admin privileges required." }, 403);
   }
 
-  // ── 2. Query user_roles for all IDs with role 'employee' ──
+  // ── 4. Query user_roles for all IDs with role 'employee' ─────────────────
   const { data: employeeRoles, error: rolesError } = await supabaseAdmin
     .from("user_roles")
     .select("id")
@@ -77,7 +98,7 @@ Deno.serve(async (req: Request) => {
 
   const employeeIds = new Set(employeeRoles.map((r) => r.id));
 
-  // ── 3. Fetch Auth Users via Service Role ──
+  // ── 5. Fetch Auth Users via Service Role ──────────────────────────────────
   const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
   if (listError) {
@@ -90,7 +111,6 @@ Deno.serve(async (req: Request) => {
   const employees = allUsers
     .filter((u) => employeeIds.has(u.id))
     .map((u) => {
-      // Check banned_until to determine active vs deactivated status
       const bannedUntil = u.banned_until ? new Date(u.banned_until) : null;
       const isBanned = bannedUntil !== null && bannedUntil.getTime() > now;
 
