@@ -67,6 +67,35 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  // ── TEMPORARY DIAGNOSTIC LOGGING (remove after fix is confirmed) ─────────
+  // 1. Exact env-var name used to read the service role key.
+  console.log("[diag] env-var name read for service key:", "SUPABASE_SERVICE_ROLE_KEY");
+
+  // 2. Truthiness + length — confirms the secret was injected at all.
+  console.log(
+    "[diag] service role key present:",
+    Boolean(serviceRoleKey),
+    "| length:",
+    serviceRoleKey.length
+  );
+
+  // 3. First-8 / last-4 chars only — visually compare with dashboard.
+  //    NEVER logs the full key value.
+  console.log(
+    "[diag] service role key preview (first8...last4):",
+    `${serviceRoleKey.slice(0, 8)}....${serviceRoleKey.slice(-4)}`
+  );
+
+  // 4. Confirm it is `supabaseAdmin` (service-role client) running the query,
+  //    NOT `supabaseForAuth` (anon-key client from step 2).
+  console.log(
+    "[diag] client used for user_roles query:",
+    "supabaseAdmin",
+    "| same object as supabaseForAuth:",
+    (supabaseAdmin as unknown) === (supabaseForAuth as unknown)
+  );
+  // ── END DIAGNOSTIC LOGGING ───────────────────────────────────────────────
+
   const { data: roleData, error: roleError } = await supabaseAdmin
     .from("user_roles")
     .select("role")
@@ -79,7 +108,30 @@ Deno.serve(async (req: Request) => {
   );
 
   if (roleError || roleData?.role !== "admin") {
-    return jsonResponse({ error: "Forbidden: Admin privileges required." }, 403);
+    return jsonResponse({
+      error: "Forbidden: Admin privileges required.",
+      debug: {
+        serviceKeyPresent: Boolean(serviceRoleKey),
+        serviceKeyLength: serviceRoleKey ? serviceRoleKey.length : 0,
+        serviceKeyPreview: serviceRoleKey
+          ? `${serviceRoleKey.slice(0, 8)}....${serviceRoleKey.slice(-4)}`
+          : null,
+        postgresError: roleError
+          ? `${roleError.code ? `[${roleError.code}] ` : ""}${roleError.message}`
+          : null,
+        postgresErrorDetails: roleError
+          ? {
+              code: roleError.code,
+              message: roleError.message,
+              details: roleError.details,
+              hint: roleError.hint,
+            }
+          : null,
+        queryClientUsed: "supabaseAdmin (service-role client)",
+        callerUserId: callerUser.id,
+        fetchedRole: roleData?.role ?? null,
+      },
+    }, 403);
   }
 
   // ── 4. Query user_roles for all IDs with role 'employee' ─────────────────
@@ -89,7 +141,28 @@ Deno.serve(async (req: Request) => {
     .eq("role", "employee");
 
   if (rolesError) {
-    return jsonResponse({ error: `Failed to query employee roles: ${rolesError.message}` }, 500);
+    return jsonResponse({
+      error: `Failed to query employee roles: ${rolesError.message}`,
+      debug: {
+        serviceKeyPresent: Boolean(serviceRoleKey),
+        serviceKeyLength: serviceRoleKey ? serviceRoleKey.length : 0,
+        serviceKeyPreview: serviceRoleKey
+          ? `${serviceRoleKey.slice(0, 8)}....${serviceRoleKey.slice(-4)}`
+          : null,
+        postgresError: rolesError
+          ? `${rolesError.code ? `[${rolesError.code}] ` : ""}${rolesError.message}`
+          : null,
+        postgresErrorDetails: rolesError
+          ? {
+              code: rolesError.code,
+              message: rolesError.message,
+              details: rolesError.details,
+              hint: rolesError.hint,
+            }
+          : null,
+        queryClientUsed: "supabaseAdmin (service-role client)",
+      },
+    }, 500);
   }
 
   if (!employeeRoles || employeeRoles.length === 0) {
