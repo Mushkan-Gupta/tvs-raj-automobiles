@@ -25,12 +25,7 @@
 //   GOOGLE_SHEET_ID           — the long ID from the Google Sheet URL
 // =============================================================================
 
-// --- CORS headers -----------------------------------------------------------
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { CORS_HEADERS, requireRole, sheetSafe, validatePublicInquiry } from "../_shared/auth.ts";
 
 // Helper: build a JSON response with CORS headers
 function jsonResponse(body: unknown, status = 200): Response {
@@ -70,6 +65,7 @@ Deno.serve(async (req: Request) => {
     phone?: string;
     interested_model?: string;
     message?: string;
+    status?: string;
     sold_price?: number;
     soldPrice?: number;
     buyer_type?: string;
@@ -84,6 +80,18 @@ Deno.serve(async (req: Request) => {
     stockLog = await req.json();
   } catch {
     return jsonResponse({ error: "Invalid JSON in request body." }, 400);
+  }
+
+  if (stockLog.type === "inquiry") {
+    const bad = await validatePublicInquiry(stockLog);
+    if (bad) return jsonResponse({ error: bad }, 400);
+    stockLog.name = sheetSafe(stockLog.name);
+    stockLog.phone = sheetSafe(stockLog.phone);
+    stockLog.interested_model = sheetSafe(stockLog.interested_model);
+    stockLog.message = sheetSafe(stockLog.message);
+  } else {
+    const auth = await requireRole(req, ["admin", "employee"]);
+    if (auth instanceof Response) return auth;
   }
 
   // --- Handle 'inquiry' type specifically ---
@@ -202,7 +210,7 @@ Deno.serve(async (req: Request) => {
 
   // Validate required sale fields when action is "sale" / "sold"
   if (!isArrival) {
-    const rawSoldPrice = stockLog.sold_price ?? stockLog.soldPrice;
+    const rawSoldPrice: unknown = stockLog.sold_price ?? stockLog.soldPrice;
     const rawBuyerType = stockLog.buyer_type ?? stockLog.buyerType;
     const rawPaymentStatus = stockLog.payment_status ?? stockLog.paymentStatus;
 
@@ -325,7 +333,7 @@ Deno.serve(async (req: Request) => {
     const soldPrice = Number(stockLog.sold_price ?? stockLog.soldPrice);
     const buyerType = String(stockLog.buyer_type ?? stockLog.buyerType).trim();
     const paymentStatus = String(stockLog.payment_status ?? stockLog.paymentStatus).trim();
-    const rawAmountPaid = stockLog.amount_paid ?? stockLog.amountPaid;
+    const rawAmountPaid: unknown = stockLog.amount_paid ?? stockLog.amountPaid;
     const amountPaid = (rawAmountPaid !== undefined && rawAmountPaid !== null && rawAmountPaid !== "")
       ? Number(rawAmountPaid)
       : 0;

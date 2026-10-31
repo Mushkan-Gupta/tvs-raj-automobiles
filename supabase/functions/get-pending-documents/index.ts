@@ -3,11 +3,7 @@
 // Supabase Edge Function — Fetch sales with pending documentation from Google Sheets
 // =============================================================================
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
+import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -20,6 +16,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
+
+  const auth = await requireRole(req, ["admin", "employee"]);
+  if (auth instanceof Response) return auth;
 
   const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
   const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
