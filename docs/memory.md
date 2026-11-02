@@ -16,8 +16,17 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Redesign order: public site first, staff portals after.
 - Security fixes on edge functions come before the redesign.
 - Language: public site English now, Nepali later (public only). Admin and employee stay English.
-- Bike data is currently fake; real bikes and prices come from the Raj showroom.
+- Bike data is currently fake. For now: placeholder prices that the admin can edit; real list/photos come later from the owner.
 - Devices: staff use mobile and desktop; must work on iOS and Android.
+
+- Bikes: inquiry only. Parts: direct online order (account required). Parts list shows pinned items (TVS-logo helmets) first.
+- Discounts: admin only, % only, start/end date, per product, plus apply-all-bikes and apply-all-parts buttons.
+- Employee sale form: price auto-filled (discounted price); Discount (% or Rs), Paperwork (+), Modification (+ note); employee discount max 10%, above that needs admin approval ("Pending Approval" queue); extra products reduce stock.
+- Delivery fee Rs 500 all Nepal, Rs 250 if prepaid. Payment must confirm automatically (no screenshots): COD, then Khalti, then Fonepay QR.
+- Customer login: Google, email OTP, email/phone + password (phone is a profile field; phone-number login needs paid SMS).
+- Cost price entered by owner in the admin product form (mirrored to Sheet); admin overview shows parts profit.
+- Photos: one original placeholder illustration now; no scraped copyrighted photos; reviews only real, with consent, owner picks which to show.
+- Source of truth: Supabase; Google Sheet is a synced copy.
 
 ## Gotchas
 - Deployment needs three things: merge `pr-preview` into `main` and push (Vercel production = `main`), and `supabase functions deploy <name>` for every changed function.
@@ -35,4 +44,6 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Coding tool: Antigravity
 
 ## Change log
+- 2026-11-03: Step A1 completed (migration 20261103021000_a1_price_parts.sql, bikes price confirmation in AdminDashboard, /admin/parts portal with confidential cost price & photo uploads).
+- 2026-11-02: Phase 0 functions deployed, employee delete fixed (user_roles FK cascade), RLS issues found (phase0/rls-fix.sql), commerce features specified, UI parked.
 - 2026-10-31: docs/ folder created (prd, architecture, design, rules, tasks, memory). Security review completed; redesign plan agreed.

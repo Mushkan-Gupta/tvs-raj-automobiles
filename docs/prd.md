@@ -29,13 +29,19 @@ A website and staff management system for **TVS Raj Automobiles**, a TVS motorcy
 - Admin: Business Overview (revenue, units, payment status, buyer split, sales by model, pending handovers, 6-month trend, stock value, low-stock alerts), inventory dashboard, manage employees (create, list, activate/deactivate).
 - Monthly dashboard email via Google Apps Script.
 
-## 5. Scope by phase
-| Phase | Scope |
-|---|---|
-| 0 | Security fixes: authentication/role checks on all edge functions, schema + RLS in repo |
-| 1 | Public site redesign (designed in Google Stitch first), real bike data with real prices, mobile-first, iOS + Android tested |
-| 2 | Redesign of employee and admin portals, mobile and desktop |
-| 3 | Nepali language for the **public site only** (admin/employee stay English) |
+## 5. Scope by phase (updated Nov 2026)
+Owner/admin + employee features come first. Customer-facing work and the UI redesign (Stitch, 3D bike, Nepali) come after.
+
+| Track | Step | Scope |
+|---|---|---|
+| Security | 0 | Edge-function auth (done), RLS fix (`phase0/rls-fix.sql`), employee password rule |
+| 1 Owner + Employee | A1 | Bike price (admin-editable), parts catalogue with photo, price, cost price, stock, pinned parts |
+| 1 | A2 | Employee sale form v2: auto price, discount / paperwork / modification, extra products, approval for discount > 10%, new Sheet columns |
+| 1 | A3 | Discounts: admin only, %, start/end date, per product + apply-all-bikes + apply-all-parts |
+| 1 | A4 | Admin overview: final price, profit from parts, approval queue |
+| 2 Customer | B1 | Public catalogue from DB, colours + per-colour image, parts under each bike, discount display, reviews |
+| 2 | B2 | Customer accounts, cart, checkout, COD + online payment, orders, employee order queue, notifications |
+| 3 | B3 | UI redesign (Stitch, 3D viewer, Ducati-style bike page), then Nepali for public site |
 
 ## 6. Requirements
 ### Functional
@@ -57,7 +63,43 @@ A website and staff management system for **TVS Raj Automobiles**, a TVS motorcy
 - Replacing Google Sheets as the back office.
 
 ## 8. Open questions
-- Any new features beyond redesign (online booking, EMI calculator, test-ride request)? Not decided.
+- Any extra features beyond section 9 (EMI calculator, test-ride request)? Not decided.
 - Brand colours and visual direction: to be decided after the first Stitch designs.
 - Real bike list, prices and images: to be collected from the showroom.
 - Final Nepali translations and who provides them.
+
+## 9. Commerce features (decided)
+### 9.1 Bike page (Ducati-style layout)
+- Bike on the left, colour swatches under it (changing colour swaps the bike image), parts list on the right (by category, price, add button).
+- **Bikes cannot be bought online: "Enquire" only (no login needed).**
+- **Parts can be bought directly** without buying a bike. Account required to order parts.
+- Parts list order: pinned parts first (TVS-logo helmets), then the rest. Admin controls pinning.
+
+### 9.2 Pricing and discounts
+- Placeholder prices for now; **admin can edit any price at any time** (owner sometimes raises price before discounting).
+- Discount: **admin only**, percent only, start and end date, per product, plus two separate buttons: apply to all bikes / apply to all parts.
+- Public display: original price struck through, discounted price, "% off".
+
+### 9.3 Employee sale form
+- Select bike -> price fills automatically (the discounted price if a discount is active). No manual price typing.
+- Optional adjustment boxes, any combination: **Discount** (subtracts; % or Rs via dropdown), **Paperwork charge** (adds), **Modification charge** (adds, with a short note). Each has an amount field.
+- Employee discount up to **10%** is free; **above 10% needs admin approval** (sale saved as "Pending Approval", admin approves in the admin portal).
+- Employee can add **extra products** (helmet etc.) with quantity; price comes from the catalogue; stock reduces on sale.
+- Everything is saved to the database and the Google Sheet.
+
+### 9.4 Customer shop (parts)
+- Login options: Google, email OTP, email/phone + password (see architecture.md for the phone-login constraint).
+- Checkout: payment like normal shopping apps (no screenshots, no manual owner contact). COD supported. Online payment is confirmed automatically by the server.
+- Delivery fee: **Rs 500 anywhere in Nepal; Rs 250 if paid online (prepaid).**
+- After payment: customer gets an "order confirmed" notification; the order appears in the **employee** order queue; employee packs and ships; **owner only sees overview and the Google Sheet**.
+- Parts stock is tracked; out-of-stock is shown.
+
+### 9.5 Admin
+- Add a new bike or part (photos, colours, price, cost price, stock, compatible bikes); it appears on the website immediately.
+- Edit price, photo and details later.
+- Overview adds: **profit from parts** (selling price minus cost price, both showroom sales and online orders), orders summary.
+- Reviews & feedback: customers submit; owner picks which to publish (only with the customer's consent).
+
+### 9.6 Images and reviews
+- One neutral placeholder image (original illustration, no third-party copyright) until real photos are uploaded by the owner. Owner can replace images per bike and per colour.
+- Reviews: only real customer reviews with permission. Do not copy reviews from other sites.

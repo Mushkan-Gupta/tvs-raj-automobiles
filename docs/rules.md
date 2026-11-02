@@ -47,3 +47,13 @@ Read `prd.md`, `architecture.md`, `design.md`, `tasks.md` and `memory.md` before
 1. Ask when requirements are unclear instead of guessing.
 2. Do not delete or rewrite files outside the task scope.
 3. State which files were changed and how to test.
+
+## Commerce rules (added)
+1. Never trust prices from the browser: the server recalculates totals, discounts and delivery fee from the database.
+2. Cost price lives only in the admin-only `part_costs` table, never in a publicly readable table or API response.
+3. Order and payment writes happen only in edge functions (service role). Customers can read only their own orders (RLS).
+4. Payment is marked Paid only after server-side verification with the gateway.
+5. Discounts can only be created by admins. Employee discount above 10% needs admin approval before the sale is final.
+6. Store price, discount and cost snapshots on every order/sale item.
+7. Public site images must be owned/original or licensed; no scraped photos or copied reviews.
+8. Run `phase0/rls-fix.sql` (or equivalent) before enabling customer sign-up.

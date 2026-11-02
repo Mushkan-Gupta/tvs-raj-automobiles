@@ -45,3 +45,11 @@ Real bike list, real prices (NPR), real specs, real photos, offers, address, pho
 2. Review and choose a direction; record it in `memory.md`.
 3. Update this file with final colours, fonts, spacing and component rules.
 4. Export or hand the designs to the coding tool, one screen at a time.
+
+## Added decisions (Nov 2026)
+- Status: UI redesign parked until feature Parts 0-5 are done.
+- Bike detail layout reference (Ducati configurator): bike large on the left, colour swatches under it (colour changes the bike image), parts panel on the right grouped by category with price and add button, running total/cart at the bottom.
+- 3D bike viewer wanted on the public site (compress `bike.glb`, lazy-load). Real per-part 3D highlighting is not possible without per-part models.
+- Public site text: English only (no Hindi/Hinglish). Nepali later.
+- Discount UI: struck-through original price, discounted price, "% off" badge.
+- Placeholder: `assets/BikePlaceholder.jsx` (recolourable) until real photos exist.

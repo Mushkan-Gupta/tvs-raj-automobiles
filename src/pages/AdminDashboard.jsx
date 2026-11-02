@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Pencil, Trash2, X, Check, AlertCircle, ChevronDown } from 'lucide-react';
 import AdminNav from '../components/AdminNav';
+import { formatNPR } from '../lib/formatters';
 
 // ─── Constants ───
 const CATEGORIES = ['Sports', 'Naked', 'Commuter', 'Cruiser', 'Scooter', 'Electric'];
@@ -120,6 +121,7 @@ function BikeFormModal({ initialData, onSave, onClose }) {
         model: form.model.trim() || null,
         category: form.category,
         price: Number(form.price),
+        price_confirmed: true,
         offer_price: form.offer_price ? Number(form.offer_price) : null,
         availability: form.availability,
         description: form.description.trim() || null,
@@ -334,10 +336,7 @@ export default function AdminDashboard() {
     navigate('/admin-login');
   };
 
-  // ─── Helpers ───
-  const formatPrice = (price) =>
-    price != null ? `NPR ${Number(price).toLocaleString()}` : '—';
-
+  // ─── Render ───
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
@@ -417,10 +416,17 @@ export default function AdminDashboard() {
                   </td>
                   <td className="px-4 py-3 text-gray-300">{bike.category || '—'}</td>
                   <td className="px-4 py-3">
-                    <p className="text-white font-semibold">{formatPrice(bike.price)}</p>
-                    {bike.offer_price && (
-                      <p className="text-xs text-emerald-400 mt-0.5">Offer: {formatPrice(bike.offer_price)}</p>
-                    )}
+                    <div className="flex flex-col items-start gap-1">
+                      <p className="text-white font-semibold">{formatNPR(bike.price)}</p>
+                      {bike.price_confirmed !== true && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                          Price not confirmed
+                        </span>
+                      )}
+                      {bike.offer_price && (
+                        <p className="text-xs text-emerald-400">Offer: {formatNPR(bike.offer_price)}</p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${
