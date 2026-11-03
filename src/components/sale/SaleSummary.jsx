@@ -101,3 +101,4 @@ export default function SaleSummary({ computed, paymentStatus, amountPaid }) {
     </div>
   );
 }
+

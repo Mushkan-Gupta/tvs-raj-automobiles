@@ -111,3 +111,4 @@ export default function MySaleRequests({ currentUserId, refreshTrigger }) {
     </div>
   );
 }
+
