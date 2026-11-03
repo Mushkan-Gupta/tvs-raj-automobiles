@@ -1,10 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, Wrench, FileText, CreditCard, Users } from 'lucide-react';
+import { LayoutDashboard, Package, Wrench, FileText, CreditCard, Users, Clock } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
-export default function AdminNav({ pendingDocsCount, pendingPaymentsCount }) {
+export default function AdminNav({ pendingDocsCount, pendingPaymentsCount, pendingApprovalsCount }) {
   const location = useLocation();
   const currentPath = location.pathname;
+  const [internalApprovalsCount, setInternalApprovalsCount] = useState(0);
+
+  // If pendingApprovalsCount not passed in props, fetch count
+  useEffect(() => {
+    if (pendingApprovalsCount !== undefined) return;
+    async function fetchApprovalsCount() {
+      const { count, error } = await supabase
+        .from('pending_sales')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if (!error && count !== null) {
+        setInternalApprovalsCount(count);
+      }
+    }
+    fetchApprovalsCount();
+  }, [pendingApprovalsCount]);
+
+  const activeApprovalsCount = pendingApprovalsCount !== undefined
+    ? pendingApprovalsCount
+    : internalApprovalsCount;
 
   const navItems = [
     {
@@ -12,6 +33,14 @@ export default function AdminNav({ pendingDocsCount, pendingPaymentsCount }) {
       path: '/admin/overview',
       icon: LayoutDashboard,
       active: currentPath === '/admin/overview',
+    },
+    {
+      name: 'Approvals',
+      path: '/admin/approvals',
+      icon: Clock,
+      active: currentPath === '/admin/approvals',
+      badge: activeApprovalsCount,
+      badgeColor: 'amber',
     },
     {
       name: 'Inventory',

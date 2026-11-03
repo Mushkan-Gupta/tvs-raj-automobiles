@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
+import { getGoogleAccessToken } from "../_shared/google.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -39,7 +40,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Fetch all rows from "Sold" tab
-  const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:M`;
+  const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:Z`;
   const soldRes = await fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
 
   if (!soldRes.ok) {
@@ -59,17 +60,16 @@ Deno.serve(async (req: Request) => {
 
   const headers = rows[0].map((h) => (h ?? "").toString().trim());
 
-  // Dynamically map column indices with fallbacks to standard columns A-M
+  // Dynamically map column indices with fallbacks to standard columns A-M + A2 columns
   const dateIdx = headers.findIndex((h) => /^date$/i.test(h));
   const bikeNameIdx = headers.findIndex((h) => /bike(\s*name)?/i.test(h));
   const customerNameIdx = headers.findIndex((h) => /customer\s*name/i.test(h));
   const customerPhoneIdx = headers.findIndex((h) => /customer\s*phone/i.test(h));
   const saleIdIdx = headers.findIndex((h) => /sale\s*id/i.test(h));
   const soldPriceIdx = headers.findIndex((h) => /sold\s*price/i.test(h));
+  const finalPriceIdx = headers.findIndex((h) => /final\s*price/i.test(h));
   const buyerTypeIdx = headers.findIndex((h) => /buyer\s*type/i.test(h));
-  const paymentStatusIdx = headers.findIndex((h) => /payment\s*status/i.test(h));
   const amountPaidIdx = headers.findIndex((h) => /amount\s*paid/i.test(h));
-  const balanceDueIdx = headers.findIndex((h) => /balance\s*due/i.test(h));
 
   const pendingPayments = [];
 
@@ -80,14 +80,23 @@ Deno.serve(async (req: Request) => {
     const saleId = (saleIdIdx !== -1 ? row[saleIdIdx] : row[7])?.toString().trim();
     if (!saleId) continue;
 
-    const paymentStatus = (paymentStatusIdx !== -1 ? row[paymentStatusIdx] : row[10])?.toString().trim() || "Pending";
     const soldPrice = Number((soldPriceIdx !== -1 ? row[soldPriceIdx] : row[8]) || 0);
-    const amountPaid = Number((amountPaidIdx !== -1 ? row[amountPaidIdx] : row[11]) || 0);
-    const rawBalanceDue = Number((balanceDueIdx !== -1 ? row[balanceDueIdx] : row[12]) || (soldPrice - amountPaid));
-    const balanceDue = Math.max(0, rawBalanceDue);
+    const rawFinalPrice = finalPriceIdx !== -1 ? row[finalPriceIdx] : undefined;
+    const finalPriceNum = (rawFinalPrice !== undefined && rawFinalPrice !== null && String(rawFinalPrice).trim() !== "")
+      ? Number(String(rawFinalPrice).replace(/[^\d.-]/g, ""))
+      : NaN;
+    const effectivePrice = !isNaN(finalPriceNum) && finalPriceNum > 0 ? finalPriceNum : soldPrice;
 
-    // Filter rows where Payment Status is not "Fully Paid"
-    if (paymentStatus.toLowerCase() === "fully paid" && balanceDue <= 0) {
+    const amountPaid = Number((amountPaidIdx !== -1 ? row[amountPaidIdx] : row[11]) || 0);
+    const balanceDue = Math.max(0, effectivePrice - amountPaid);
+
+    // Payment Status: Fully Paid when Amount Paid >= Final Price, else Pending / Partial
+    const paymentStatus = amountPaid >= effectivePrice
+      ? "Fully Paid"
+      : (amountPaid > 0 ? "Partial" : "Pending");
+
+    // Filter rows where Payment Status is "Fully Paid"
+    if (paymentStatus === "Fully Paid" || balanceDue <= 0) {
       continue;
     }
 
@@ -103,7 +112,7 @@ Deno.serve(async (req: Request) => {
       customerPhone,
       bikeName,
       buyerType,
-      soldPrice,
+      soldPrice: effectivePrice,
       amountPaid,
       balanceDue,
       paymentStatus,
@@ -117,70 +126,3 @@ Deno.serve(async (req: Request) => {
     pendingPayments,
   });
 });
-
-// =============================================================================
-// OAuth Helpers
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-}

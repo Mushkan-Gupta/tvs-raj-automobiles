@@ -27,11 +27,12 @@ Legend: [ ] todo, [~] in progress, [x] done. Order changed (Nov 2026): **Track 1
 - [x] Admin /admin/parts: add/edit/deactivate, photo, price, cost price, stock, pinned (TVS-logo helmets first), fits-all, compatible bikes
 
 ### A2: Employee sale form v2
-- [ ] Bike select -> auto price (from bikes.price; uses discounted price once A3 is done)
-- [ ] Adjustment boxes: Discount (% or Rs), Paperwork (+), Modification (+ note)
-- [ ] Employee discount >10% -> "Pending Approval"; admin approval queue
-- [ ] Extra products with quantity (price from parts, stock reduces)
-- [ ] New columns on sale rows + Google Sheet (exact header names agreed before building)
+- [x] Bike select -> auto price (from bikes.price; uses discounted price once A3 is done)
+- [x] Adjustment boxes: Discount (% or Rs), Paperwork (+), Modification (+ note)
+- [x] Employee discount >10% -> "Pending Approval"; admin approval queue (/admin/approvals)
+- [x] Extra products with quantity (price from parts, stock reduces)
+- [x] New columns on sale rows + Google Sheet (Original Price, Discount Type, Discount Value, Discount Amount, Paperwork Charge, Modification Charge, Modification Note, Extra Products, Extra Products Total, Final Price, Approval Status, Approved By)
+- [x] commit_sale SQL transaction with stock & parts guards + RLS tightening (arrival only from client)
 
 ### A3: Discounts (admin)
 - [ ] `discounts` table + RLS (admin write, public read active)

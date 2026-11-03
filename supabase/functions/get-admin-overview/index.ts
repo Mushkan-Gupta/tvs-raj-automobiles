@@ -5,6 +5,7 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
+import { getGoogleAccessToken } from "../_shared/google.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -210,10 +211,9 @@ Deno.serve(async (req: Request) => {
     const bikeNameIdx = headers.findIndex((h) => /bike(\s*name)?/i.test(h));
     const qtyIdx = headers.findIndex((h) => /^quantity$/i.test(h) || /^units/i.test(h));
     const soldPriceIdx = headers.findIndex((h) => /sold\s*price/i.test(h));
+    const finalPriceIdx = headers.findIndex((h) => /final\s*price/i.test(h));
     const buyerTypeIdx = headers.findIndex((h) => /buyer\s*type/i.test(h));
-    const paymentStatusIdx = headers.findIndex((h) => /payment\s*status/i.test(h));
     const amountPaidIdx = headers.findIndex((h) => /amount\s*paid/i.test(h));
-    const balanceDueIdx = headers.findIndex((h) => /balance\s*due/i.test(h));
 
     for (let r = 1; r < soldRows.length; r++) {
       const row = soldRows[r];
@@ -223,31 +223,32 @@ Deno.serve(async (req: Request) => {
       const rawPrice = (soldPriceIdx !== -1 ? row[soldPriceIdx] : row[7]) ?? 0;
       const soldPrice = Number(String(rawPrice).replace(/[^\d.-]/g, "")) || 0;
 
+      const rawFinalPrice = finalPriceIdx !== -1 ? row[finalPriceIdx] : undefined;
+      const finalPriceNum = (rawFinalPrice !== undefined && rawFinalPrice !== null && String(rawFinalPrice).trim() !== "")
+        ? Number(String(rawFinalPrice).replace(/[^\d.-]/g, ""))
+        : NaN;
+      // Use Final Price when present and fall back to Sold Price for old rows
+      const effectivePrice = !isNaN(finalPriceNum) && finalPriceNum > 0 ? finalPriceNum : soldPrice;
+
       const rawQty = (qtyIdx !== -1 ? row[qtyIdx] : row[3]) ?? 1;
       const quantity = Math.max(1, parseInt(String(rawQty).replace(/[^\d]/g, ""), 10) || 1);
 
-      const rawStatus = (paymentStatusIdx !== -1 ? row[paymentStatusIdx] : row[9])?.toString().trim() || "Pending";
-      const normalizedStatus: "Fully Paid" | "Partial" | "Pending" =
-        rawStatus.toLowerCase() === "fully paid"
-          ? "Fully Paid"
-          : rawStatus.toLowerCase() === "partial"
-          ? "Partial"
-          : "Pending";
-
       const rawPaid = (amountPaidIdx !== -1 ? row[amountPaidIdx] : row[10]) ?? 0;
-      const amountPaid = Number(String(rawPaid).replace(/[^\d.-]/g, "")) || (normalizedStatus === "Fully Paid" ? soldPrice : 0);
+      const amountPaid = Number(String(rawPaid).replace(/[^\d.-]/g, "")) || 0;
 
-      const rawBalance = (balanceDueIdx !== -1 ? row[balanceDueIdx] : row[11]) ?? 0;
-      let balanceDue = Number(String(rawBalance).replace(/[^\d.-]/g, "")) || Math.max(0, soldPrice - amountPaid);
-      if (normalizedStatus === "Fully Paid") {
-        balanceDue = 0;
-      }
+      // Payment Status: Fully Paid when Amount Paid >= Final Price, else Pending / Partial
+      const normalizedStatus: "Fully Paid" | "Partial" | "Pending" =
+        amountPaid >= effectivePrice
+          ? "Fully Paid"
+          : (amountPaid > 0 ? "Partial" : "Pending");
+
+      const balanceDue = normalizedStatus === "Fully Paid" ? 0 : Math.max(0, effectivePrice - amountPaid);
 
       const rawBuyer = (buyerTypeIdx !== -1 ? row[buyerTypeIdx] : row[8])?.toString().trim() || "Individual";
       const normalizedBuyer = rawBuyer.toLowerCase() === "corporate" ? "Corporate" : "Individual";
 
       // 1. Total revenue & units
-      totalRevenue += soldPrice;
+      totalRevenue += effectivePrice;
       totalUnitsSold += quantity;
 
       // 2. Outstanding balance
@@ -258,7 +259,7 @@ Deno.serve(async (req: Request) => {
       // 3. Payment status breakdown
       if (paymentStatusMap[normalizedStatus]) {
         paymentStatusMap[normalizedStatus].count += 1;
-        paymentStatusMap[normalizedStatus].totalAmount += soldPrice;
+        paymentStatusMap[normalizedStatus].totalAmount += effectivePrice;
         paymentStatusMap[normalizedStatus].amountPaid += amountPaid;
         paymentStatusMap[normalizedStatus].balanceDue += balanceDue;
       }
@@ -266,13 +267,13 @@ Deno.serve(async (req: Request) => {
       // 4. Buyer type split
       if (buyerTypeMap[normalizedBuyer]) {
         buyerTypeMap[normalizedBuyer].count += 1;
-        buyerTypeMap[normalizedBuyer].revenue += soldPrice;
+        buyerTypeMap[normalizedBuyer].revenue += effectivePrice;
       }
 
       // 5. Sales by model
       const modelEntry = modelSalesMap.get(bikeName) || { bikeName, unitsSold: 0, revenue: 0 };
       modelEntry.unitsSold += quantity;
-      modelEntry.revenue += soldPrice;
+      modelEntry.revenue += effectivePrice;
       modelSalesMap.set(bikeName, modelEntry);
 
       // 6. Monthly trend
@@ -283,7 +284,7 @@ Deno.serve(async (req: Request) => {
         const pMonth = parsedDate.getMonth();
         const bucket = monthlyTrendBuckets.find((b) => b.year === pYear && b.monthIndex === pMonth);
         if (bucket) {
-          bucket.revenue += soldPrice;
+          bucket.revenue += effectivePrice;
           bucket.unitsSold += quantity;
         }
       }
@@ -447,70 +448,3 @@ Deno.serve(async (req: Request) => {
 
   return jsonResponse(responseData);
 });
-
-// =============================================================================
-// OAuth Helpers (Google Service Account JWT)
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-}

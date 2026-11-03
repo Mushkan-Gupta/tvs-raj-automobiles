@@ -36,6 +36,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Schema and RLS policies are not in the repo yet.
 - `public/models/bike.glb` is 17.6 MB.
 - Code is generated with Antigravity (Gemini IDE); always run lint + build and test manually.
+- Client cannot insert `stock_logs` with type='sale' directly; sales must go through edge function + `commit_sale()` RPC.
 
 ## Tooling
 - Repo: github.com/Mushkan-Gupta/tvs-raj-automobiles
@@ -44,6 +45,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Coding tool: Antigravity
 
 ## Change log
+- 2026-11-03: Step A2 completed (migration 20261103152338_a2_sale_v2.sql, pure pricing module & tests, record-sale & review-sale edge functions, Google Sheets A2 columns + get-pending-payments/update-payment/get-admin-overview Final Price fallback, employee sale form v2 with modular components, and /admin/approvals queue with AdminNav badge).
 - 2026-11-03: Step A1 completed (migration 20261103021000_a1_price_parts.sql, bikes price confirmation in AdminDashboard, /admin/parts portal with confidential cost price & photo uploads).
 - 2026-11-02: Phase 0 functions deployed, employee delete fixed (user_roles FK cascade), RLS issues found (phase0/rls-fix.sql), commerce features specified, UI parked.
 - 2026-10-31: docs/ folder created (prd, architecture, design, rules, tasks, memory). Security review completed; redesign plan agreed.

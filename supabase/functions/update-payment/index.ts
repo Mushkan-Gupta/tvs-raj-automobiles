@@ -4,24 +4,13 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
+import { getGoogleAccessToken, colToLetter } from "../_shared/google.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
   });
-}
-
-function colToLetter(colIndex: number): string {
-  let temp: number;
-  let letter = "";
-  let c = colIndex;
-  while (c > 0) {
-    temp = (c - 1) % 26;
-    letter = String.fromCharCode(temp + 65) + letter;
-    c = Math.floor((c - temp - 1) / 26);
-  }
-  return letter;
 }
 
 Deno.serve(async (req: Request) => {
@@ -77,7 +66,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // 1. Fetch current "Sold" tab
-  const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:M`;
+  const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:Z`;
   const soldRes = await fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
 
   if (!soldRes.ok) {
@@ -100,6 +89,7 @@ Deno.serve(async (req: Request) => {
   // Locate column indices dynamically
   const saleIdIdx = headers.findIndex((h) => /sale\s*id/i.test(h));
   const soldPriceIdx = headers.findIndex((h) => /sold\s*price/i.test(h));
+  const finalPriceIdx = headers.findIndex((h) => /final\s*price/i.test(h));
   const amountPaidIdx = headers.findIndex((h) => /amount\s*paid/i.test(h));
   const balanceDueIdx = headers.findIndex((h) => /balance\s*due/i.test(h));
   const paymentStatusIdx = headers.findIndex((h) => /payment\s*status/i.test(h));
@@ -136,8 +126,14 @@ Deno.serve(async (req: Request) => {
   const pStatusIdx = paymentStatusIdx !== -1 ? paymentStatusIdx : 10;
 
   const soldPrice = Number(currentRow[sPriceIdx] || 0);
+  const rawFinalPrice = finalPriceIdx !== -1 ? currentRow[finalPriceIdx] : undefined;
+  const finalPriceNum = (rawFinalPrice !== undefined && rawFinalPrice !== null && String(rawFinalPrice).trim() !== "")
+    ? Number(String(rawFinalPrice).replace(/[^\d.-]/g, ""))
+    : NaN;
+  const effectivePrice = !isNaN(finalPriceNum) && finalPriceNum > 0 ? finalPriceNum : soldPrice;
+
   const currentAmountPaid = Number(currentRow[aPaidIdx] || 0);
-  const currentBalanceDue = Number(currentRow[bDueIdx] || (soldPrice - currentAmountPaid));
+  const currentBalanceDue = Number(currentRow[bDueIdx] || (effectivePrice - currentAmountPaid));
 
   // 3. Validation: reject if additionalAmount would make balance negative
   if (paymentNum > currentBalanceDue) {
@@ -148,9 +144,10 @@ Deno.serve(async (req: Request) => {
 
   // 4. Calculations
   const newAmountPaid = currentAmountPaid + paymentNum;
-  const rawBalance = soldPrice - newAmountPaid;
+  const rawBalance = effectivePrice - newAmountPaid;
   const newBalanceDue = Math.max(0, rawBalance);
-  const newPaymentStatus = newBalanceDue <= 0 ? "Fully Paid" : "Partial";
+  // Payment Status: Fully Paid when Amount Paid >= Final Price, else Partial / Pending
+  const newPaymentStatus = newAmountPaid >= effectivePrice ? "Fully Paid" : "Partial";
 
   // Update row values
   currentRow[aPaidIdx] = newAmountPaid;
@@ -195,7 +192,7 @@ Deno.serve(async (req: Request) => {
       saleId,
       customerName,
       bikeName,
-      soldPrice,
+      soldPrice: effectivePrice,
       amountPaid: newAmountPaid,
       balanceDue: newBalanceDue,
       paymentStatus: newPaymentStatus,
@@ -203,70 +200,3 @@ Deno.serve(async (req: Request) => {
     },
   });
 });
-
-// =============================================================================
-// OAuth Helpers
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-}

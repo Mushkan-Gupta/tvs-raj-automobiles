@@ -13,6 +13,7 @@ import Contact from './pages/Contact';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminOverview from './pages/AdminOverview';
+import AdminApprovals from './pages/AdminApprovals';
 import AdminParts from './pages/AdminParts';
 import ManageEmployees from './pages/ManageEmployees';
 import EmployeeDashboard from './pages/EmployeeDashboard';
@@ -41,6 +42,7 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/overview" element={<AdminOverview />} />
+            <Route path="/admin/approvals" element={<AdminApprovals />} />
             <Route path="/admin/parts" element={<AdminParts />} />
             <Route path="/admin/employees" element={<ManageEmployees />} />
           </Route>
