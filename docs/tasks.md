@@ -34,6 +34,12 @@ Legend: [ ] todo, [~] in progress, [x] done. Order changed (Nov 2026): **Track 1
 - [x] New columns on sale rows + Google Sheet (Original Price, Discount Type, Discount Value, Discount Amount, Paperwork Charge, Modification Charge, Modification Note, Extra Products, Extra Products Total, Final Price, Approval Status, Approved By)
 - [x] commit_sale SQL transaction with stock & parts guards + RLS tightening (arrival only from client)
 
+### A2b: Parts tab in Google Sheet (database -> Sheet)
+- [x] Shared helper `supabase/functions/_shared/parts_sheet.ts` (upsertPartRow, markPartDeleted, updatePartStockCells, syncAllParts)
+- [x] Edge function `sync-parts-to-sheet` (admin only; upsert / delete / sync_all)
+- [x] Stock reduction sync in `record-sale` & `review-sale` for extras sold
+- [x] Admin UI (/admin/parts): non-blocking sheet sync on save/deactivate/delete, "Sync all to Sheet" button with advisory note
+
 ### A3: Discounts (admin)
 - [ ] `discounts` table + RLS (admin write, public read active)
 - [ ] Admin UI: per-product %, start/end date, "apply to all bikes", "apply to all parts"

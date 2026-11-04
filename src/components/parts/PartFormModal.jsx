@@ -338,7 +338,7 @@ export default function PartFormModal({
         }
       }
 
-      onSave(isEdit ? 'updated' : 'added');
+      onSave(isEdit ? 'updated' : 'added', partId);
     } catch (err) {
       console.error('[PartForm] Save error:', err);
       setError(err.message || 'Failed to save part. Please check permissions and input.');

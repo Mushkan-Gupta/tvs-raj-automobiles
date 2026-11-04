@@ -14,6 +14,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
 import { getGoogleAccessToken, ensureHeaders } from "../_shared/google.ts";
+import { updatePartStockCells } from "../_shared/parts_sheet.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -303,6 +304,19 @@ Deno.serve(async (req: Request) => {
         );
         // Stock tab
         await updateStockTab(accessToken, sheetId, String(pending.bike_name ?? ""), newStockLevel, formattedDate);
+
+        // Update Parts tab stock cells for any extra products sold (best-effort)
+        if (extrasForCommit && extrasForCommit.length > 0) {
+          const extraPartIds = extrasForCommit.map((ex) => ex.part_id);
+          try {
+            const partStockRes = await updatePartStockCells(extraPartIds);
+            if (!partStockRes.ok) {
+              console.warn("[review-sale] Parts tab stock sync warning:", partStockRes.error);
+            }
+          } catch (partStockErr) {
+            console.warn("[review-sale] Parts tab stock sync error:", partStockErr);
+          }
+        }
       } else {
         sheetWarning = await appendRes.text();
       }

@@ -4,7 +4,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 
 ## Business
 - TVS Raj Automobiles: TVS motorcycle dealership, Lahan, Siraha, Nepal.
-- Back office is a Google Sheet (Stock, Arrivals, Sold, Documents, Inquiries). Monthly dashboard email is sent by a Google Apps Script on the last day of each month.
+- Back office is a Google Sheet (Stock, Arrivals, Sold, Documents, Inquiries, Parts). Monthly dashboard email is sent by a Google Apps Script on the last day of each month.
 - Handover/registration (Namsari) happens at Yatayat, so each sale tracks required customer documents first.
 
 ## Decisions
@@ -27,6 +27,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Cost price entered by owner in the admin product form (mirrored to Sheet); admin overview shows parts profit.
 - Photos: one original placeholder illustration now; no scraped copyrighted photos; reviews only real, with consent, owner picks which to show.
 - Source of truth: Supabase; Google Sheet is a synced copy.
+- Parts tab in Google Sheet: one-way copy from Supabase master; rows matched by Part ID; permanently deleted parts marked Active="Deleted" to preserve row history.
 
 ## Gotchas
 - Deployment needs three things: merge `pr-preview` into `main` and push (Vercel production = `main`), and `supabase functions deploy <name>` for every changed function.
@@ -37,6 +38,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - `public/models/bike.glb` is 17.6 MB.
 - Code is generated with Antigravity (Gemini IDE); always run lint + build and test manually.
 - Client cannot insert `stock_logs` with type='sale' directly; sales must go through edge function + `commit_sale()` RPC.
+- Edits made directly in the Google Sheet Parts tab are overwritten by database sync.
 
 ## Tooling
 - Repo: github.com/Mushkan-Gupta/tvs-raj-automobiles
@@ -45,6 +47,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Coding tool: Antigravity
 
 ## Change log
+- 2026-11-05: Step A2b completed (Parts tab sync in Google Sheet: shared helper _shared/parts_sheet.ts, sync-parts-to-sheet edge function, stock cell updates on sales in record-sale & review-sale, AdminParts background sync + "Sync all to Sheet" button with owner note).
 - 2026-11-03: Step A2 completed (migration 20261103152338_a2_sale_v2.sql, pure pricing module & tests, record-sale & review-sale edge functions, Google Sheets A2 columns + get-pending-payments/update-payment/get-admin-overview Final Price fallback, employee sale form v2 with modular components, and /admin/approvals queue with AdminNav badge).
 - 2026-11-03: Step A1 completed (migration 20261103021000_a1_price_parts.sql, bikes price confirmation in AdminDashboard, /admin/parts portal with confidential cost price & photo uploads).
 - 2026-11-02: Phase 0 functions deployed, employee delete fixed (user_roles FK cascade), RLS issues found (phase0/rls-fix.sql), commerce features specified, UI parked.

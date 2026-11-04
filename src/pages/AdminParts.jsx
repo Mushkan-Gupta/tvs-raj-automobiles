@@ -14,6 +14,9 @@ import {
   Eye,
   EyeOff,
   Image as ImageIcon,
+  FileSpreadsheet,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import AdminNav from '../components/AdminNav';
 import { formatNPR } from '../lib/formatters';
@@ -43,10 +46,54 @@ export default function AdminParts() {
 
   // Toast feedback
   const [toast, setToast] = useState(null);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  // ─── Background Sheet Sync Helper ─────────────────────────────────────────
+  const triggerBackgroundSync = async (payload) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-parts-to-sheet', {
+        body: payload,
+      });
+      if (error || (data && !data.ok)) {
+        console.warn('[AdminParts] Sheet sync warning:', error || data?.error);
+        showToast("Saved, but the Google Sheet could not be updated. Use 'Sync all to Sheet'.", 'warning');
+      }
+    } catch (err) {
+      console.warn('[AdminParts] Sheet sync error:', err);
+      showToast("Saved, but the Google Sheet could not be updated. Use 'Sync all to Sheet'.", 'warning');
+    }
+  };
+
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-parts-to-sheet', {
+        body: { action: 'sync_all' },
+      });
+      if (error) {
+        let msg = error.message;
+        try {
+          if (error.context instanceof Response) {
+            const json = await error.context.json();
+            msg = json?.error || msg;
+          }
+        } catch { /* ignore */ }
+        showToast(`Sync failed: ${msg}`, 'error');
+      } else if (data?.ok) {
+        showToast('All parts synced to Google Sheet successfully ✓');
+      } else {
+        showToast(`Sync failed: ${data?.error || 'Unknown error'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Sync error: ${err.message}`, 'error');
+    } finally {
+      setSyncingAll(false);
+    }
   };
 
   // ─── Fetch Parts ──────────────────────────────────────────────────────────
@@ -131,7 +178,7 @@ export default function AdminParts() {
     setEditingPart(null);
   };
 
-  const handleSaved = (action) => {
+  const handleSaved = (action, savedPartId) => {
     setFormOpen(false);
     setEditingPart(null);
     fetchParts();
@@ -142,6 +189,10 @@ export default function AdminParts() {
         ? 'Part updated successfully!'
         : 'Changes saved!'
     );
+
+    if (savedPartId) {
+      triggerBackgroundSync({ action: 'upsert', part_id: savedPartId });
+    }
   };
 
   // Toggle quick active status from list
@@ -156,6 +207,7 @@ export default function AdminParts() {
       if (error) throw error;
       showToast(nextStatus ? 'Part activated!' : 'Part deactivated!');
       fetchParts();
+      triggerBackgroundSync({ action: 'upsert', part_id: part.id });
     } catch (err) {
       showToast('Error updating status: ' + err.message, 'error');
     }
@@ -164,17 +216,19 @@ export default function AdminParts() {
   // Deactivate handler from delete modal
   const handleDeactivate = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
     setDeleteLoading(true);
     try {
       const { error } = await supabase
         .from('parts')
         .update({ active: false })
-        .eq('id', deleteTarget.id);
+        .eq('id', targetId);
 
       if (error) throw error;
       setDeleteTarget(null);
       fetchParts();
       showToast('Part deactivated successfully!');
+      triggerBackgroundSync({ action: 'upsert', part_id: targetId });
     } catch (err) {
       showToast('Deactivation failed: ' + err.message, 'error');
     } finally {
@@ -185,17 +239,19 @@ export default function AdminParts() {
   // Reactivate handler from modal
   const handleReactivate = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
     setDeleteLoading(true);
     try {
       const { error } = await supabase
         .from('parts')
         .update({ active: true })
-        .eq('id', deleteTarget.id);
+        .eq('id', targetId);
 
       if (error) throw error;
       setDeleteTarget(null);
       fetchParts();
       showToast('Part reactivated successfully!');
+      triggerBackgroundSync({ action: 'upsert', part_id: targetId });
     } catch (err) {
       showToast('Reactivation failed: ' + err.message, 'error');
     } finally {
@@ -206,17 +262,20 @@ export default function AdminParts() {
   // Permanent delete handler
   const handlePermanentDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    const targetName = deleteTarget.name;
     setDeleteLoading(true);
     try {
       const { error } = await supabase
         .from('parts')
         .delete()
-        .eq('id', deleteTarget.id);
+        .eq('id', targetId);
 
       if (error) throw error;
       setDeleteTarget(null);
       fetchParts();
       showToast('Part permanently deleted.');
+      triggerBackgroundSync({ action: 'delete', part_id: targetId, part_name: targetName });
     } catch (err) {
       showToast('Delete failed: ' + err.message, 'error');
     } finally {
@@ -237,11 +296,15 @@ export default function AdminParts() {
           className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-5 py-3.5 rounded-xl shadow-2xl border text-sm font-semibold transition-all ${
             toast.type === 'error'
               ? 'bg-red-900/90 border-red-500/50 text-red-200'
+              : toast.type === 'warning'
+              ? 'bg-amber-900/90 border-amber-500/50 text-amber-200'
               : 'bg-emerald-900/90 border-emerald-500/50 text-emerald-200'
           }`}
         >
           {toast.type === 'error' ? (
             <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+          ) : toast.type === 'warning' ? (
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
           ) : (
             <Check className="w-5 h-5 text-emerald-400 shrink-0" />
           )}
@@ -282,6 +345,25 @@ export default function AdminParts() {
 
       {/* ── Admin Navigation Tabs ── */}
       <AdminNav />
+
+      {/* ── Sync Bar & Sheet Advisory ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#0e1422] border border-[#1f293d] rounded-xl text-xs">
+        <div className="flex items-start sm:items-center gap-2 text-gray-400">
+          <FileSpreadsheet className="w-4 h-4 text-[#0066CC] shrink-0 mt-0.5 sm:mt-0" />
+          <span>
+            The Sheet is a copy. Edit parts here, not in the Sheet; edits made in the Sheet are overwritten.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleSyncAll}
+          disabled={syncingAll || loading}
+          className="self-start sm:self-auto min-h-[44px] px-4 py-2 rounded-lg bg-[#0066CC]/15 border border-[#0066CC]/30 hover:bg-[#0066CC]/25 text-[#0066CC] hover:text-white font-bold transition-colors flex items-center gap-2 disabled:opacity-50 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${syncingAll ? 'animate-spin' : ''}`} />
+          <span>{syncingAll ? 'Syncing to Sheet…' : 'Sync all to Sheet'}</span>
+        </button>
+      </div>
 
       {/* ── Controls & Filter Bar ── */}
       <div className="space-y-3 bg-[#0e1422] p-4 rounded-xl border border-[#1f293d]">
