@@ -516,3 +516,4 @@ export async function syncAllParts(): Promise<{ ok: boolean; error?: string }> {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
