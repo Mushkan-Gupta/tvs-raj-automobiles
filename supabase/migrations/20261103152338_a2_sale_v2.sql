@@ -62,8 +62,8 @@ create index if not exists idx_pending_sales_requested_by  on public.pending_sal
 -- ============================================================================
 create table if not exists public.sale_items (
   id            uuid primary key default gen_random_uuid(),
-  -- stock_log_id references stock_logs.id (integer or uuid — match existing type)
-  stock_log_id  bigint references public.stock_logs(id) on delete cascade,
+  -- stock_logs.id is uuid in this project
+  stock_log_id  uuid references public.stock_logs(id) on delete cascade,
   part_id       uuid references public.parts(id) on delete restrict,
   part_name     text,
   qty           int not null check (qty > 0),
@@ -134,6 +134,9 @@ create policy "sale_item_costs_select"
 drop policy if exists "stock_logs_insert_policy" on public.stock_logs;
 drop policy if exists "Allow authenticated users to insert stock logs" on public.stock_logs;
 drop policy if exists "authenticated_insert" on public.stock_logs;
+-- The policy created by phase0/rls-fix.sql (allows ANY type from staff). Without dropping it,
+-- policies are OR-ed and employees could still insert type = 'sale' rows directly.
+drop policy if exists "Staff can insert stock_logs" on public.stock_logs;
 
 -- New narrowed INSERT policy: staff can only log arrivals from the browser
 create policy "stock_logs_arrival_insert"
@@ -197,13 +200,13 @@ create or replace function public.commit_sale(
   p_approved_at         timestamptz,
   p_extras              jsonb
 )
-returns bigint
+returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_log_id      bigint;
+  v_log_id      uuid;
   v_new_qty     int;
   v_availability text;
   v_threshold   int;
@@ -327,4 +330,3 @@ grant execute on function public.commit_sale(
   uuid, numeric, text, numeric, numeric, numeric, numeric, text, numeric, numeric,
   uuid, timestamptz, jsonb
 ) to service_role;
-
