@@ -6,6 +6,8 @@ export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
+  "Access-Control-Expose-Headers": "Server-Timing",
 };
 
 function deny(message: string, status: number): Response {
@@ -20,6 +22,9 @@ export interface AuthResult {
   email: string | undefined;
   role: Role;
 }
+
+// In-memory cache for user role lookups (30-second TTL)
+const roleCache = new Map<string, { role: Role; exp: number }>();
 
 export async function requireRole(
   req: Request,
@@ -44,13 +49,28 @@ export async function requireRole(
   if (error || !data?.user) {
     return deny("Unauthorized: invalid or expired session.", 401);
   }
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const { data: roleRow, error: roleError } = await supabaseAdmin
-    .from("user_roles").select("role").eq("id", data.user.id).single();
-  const role = roleRow?.role as Role | undefined;
-  if (roleError || !role || !allowed.includes(role)) {
+
+  const userId = data.user.id;
+  const now = Date.now();
+  const cached = roleCache.get(userId);
+
+  let role: Role | undefined;
+  if (cached && cached.exp > now) {
+    role = cached.role;
+  } else {
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: roleRow, error: roleError } = await supabaseAdmin
+      .from("user_roles").select("role").eq("id", userId).single();
+    if (roleError || !roleRow?.role) {
+      return deny("Forbidden: you do not have permission for this action.", 403);
+    }
+    role = roleRow.role as Role;
+    roleCache.set(userId, { role, exp: now + 30_000 });
+  }
+
+  if (!role || !allowed.includes(role)) {
     return deny("Forbidden: you do not have permission for this action.", 403);
   }
   return { userId: data.user.id, email: data.user.email, role };

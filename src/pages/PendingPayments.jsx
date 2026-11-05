@@ -35,8 +35,23 @@ export default function PendingPayments() {
   const { user, role } = useAuth();
   const navigate = useNavigate();
 
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [payments, setPayments] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pending_payments_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pending_payments_cache');
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState(null);
 
@@ -49,10 +64,16 @@ export default function PendingPayments() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchPendingPayments = useCallback(async () => {
-    setLoading(true);
+  const fetchPendingPayments = useCallback(async (isManual = false) => {
+    if (payments.length > 0) {
+      setIsUpdating(true);
+    } else {
+      setLoading(true);
+    }
     try {
-      const { data, error } = await supabase.functions.invoke('get-pending-payments');
+      const { data, error } = await supabase.functions.invoke(
+        isManual ? 'get-pending-payments?fresh=true' : 'get-pending-payments'
+      );
       if (error) {
         let detail = error.message;
         try {
@@ -65,19 +86,25 @@ export default function PendingPayments() {
         showToast(`Failed to load payments: ${detail}`, 'error');
         setPayments([]);
       } else {
-        setPayments(data?.pendingPayments || []);
+        const list = data?.pendingPayments || [];
+        setPayments(list);
+        try {
+          sessionStorage.setItem('pending_payments_cache', JSON.stringify(list));
+        } catch {}
       }
     } catch (err) {
       console.error('[get-pending-payments] Exception:', err);
       showToast('Network error loading pending payments.', 'error');
     } finally {
       setLoading(false);
+      setIsUpdating(false);
     }
-  }, []);
+  }, [payments.length]);
 
   useEffect(() => {
-    fetchPendingPayments();
-  }, [fetchPendingPayments]);
+    fetchPendingPayments(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAmountChange = (saleId, value) => {
     setReceivedAmounts((prev) => ({
@@ -216,14 +243,20 @@ export default function PendingPayments() {
         </div>
 
         <div className="flex items-center gap-3">
+          {isUpdating && (
+            <span className="text-xs text-blue-400 font-medium flex items-center gap-1.5 animate-pulse bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Updating...
+            </span>
+          )}
           <button
-            onClick={fetchPendingPayments}
-            disabled={loading}
+            onClick={() => fetchPendingPayments(true)}
+            disabled={loading || isUpdating}
             className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-300 hover:text-white hover:bg-[#151c2c] text-sm font-semibold transition-colors"
+              text-gray-300 hover:text-white hover:bg-[#151c2c] text-sm font-semibold transition-colors disabled:opacity-50"
             title="Refresh payments"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
           <button
@@ -417,7 +450,8 @@ export default function PendingPayments() {
                     </div>
                     <input
                       type="number"
-                      min="1"
+                      min="0"
+                      step="any"
                       max={item.balanceDue}
                       placeholder={`Amount received (max: ${item.balanceDue})`}
                       value={amountInput}

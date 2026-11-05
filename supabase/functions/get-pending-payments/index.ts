@@ -5,20 +5,26 @@
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
 import { getGoogleAccessToken } from "../_shared/google.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
+
+// ── 20-second in-memory cache ─────────────────────────────────────────────────
+interface CacheEntry { data: unknown; exp: number }
+const paymentsCache = new Map<string, CacheEntry>();
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const auth = await requireRole(req, ["admin", "employee"]);
+  const timer = new ServerTimer();
+  const auth = await timer.measure("auth", () => requireRole(req, ["admin", "employee"]));
   if (auth instanceof Response) return auth;
 
   const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
@@ -29,9 +35,27 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Missing Google Sheets configuration in environment variables." }, 500);
   }
 
+  const url = new URL(req.url);
+  const bypassCache = url.searchParams.get("fresh") === "true" ||
+                      req.headers.get("cache-control")?.includes("no-cache");
+
+  // ── Check in-memory cache (20 s TTL) ─────────────────────────────────────
+  const cacheKey = `payments:${sheetId}`;
+  const cached = paymentsCache.get(cacheKey);
+  if (!bypassCache && cached && cached.exp > Date.now()) {
+    const timingHeader = timer.getHeader();
+    return jsonResponse(
+      { ...(cached.data as object), cached: true },
+      200,
+      { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" },
+    );
+  }
+
   let accessToken: string;
   try {
-    accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    accessToken = await timer.measure("google_token", () =>
+      getGoogleAccessToken(clientEmail, privateKeyPem!)
+    );
   } catch (err) {
     return jsonResponse({
       error: "Failed to authenticate with Google.",
@@ -41,26 +65,30 @@ Deno.serve(async (req: Request) => {
 
   // Fetch all rows from "Sold" tab
   const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:Z`;
-  const soldRes = await fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-
-  if (!soldRes.ok) {
-    const errText = await soldRes.text();
-    return jsonResponse({
-      error: 'Failed to read "Sold" tab from Google Sheets.',
-      detail: errText,
-    }, 500);
+  let rows: (string | number)[][] = [];
+  try {
+    const soldRes = await timer.measure("sheets_read", () =>
+      fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+    );
+    if (!soldRes.ok) {
+      const errText = await soldRes.text();
+      return jsonResponse({ error: 'Failed to read "Sold" tab from Google Sheets.', detail: errText }, 500);
+    }
+    const soldData = await soldRes.json();
+    rows = soldData.values ?? [];
+  } catch (err) {
+    return jsonResponse({ error: 'Failed to read "Sold" tab from Google Sheets.', detail: String(err) }, 500);
   }
 
-  const soldData = await soldRes.json();
-  const rows: (string | number)[][] = soldData.values ?? [];
-
   if (rows.length <= 1) {
-    return jsonResponse({ success: true, pendingPayments: [] });
+    const result = { success: true, pendingPayments: [] };
+    paymentsCache.set(cacheKey, { data: result, exp: Date.now() + 20_000 });
+    timer.log("get-pending-payments");
+    const timingHeader = timer.getHeader();
+    return jsonResponse(result, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
   }
 
   const headers = rows[0].map((h) => (h ?? "").toString().trim());
-
-  // Dynamically map column indices with fallbacks to standard columns A-M + A2 columns
   const dateIdx = headers.findIndex((h) => /^date$/i.test(h));
   const bikeNameIdx = headers.findIndex((h) => /bike(\s*name)?/i.test(h));
   const customerNameIdx = headers.findIndex((h) => /customer\s*name/i.test(h));
@@ -72,57 +100,40 @@ Deno.serve(async (req: Request) => {
   const amountPaidIdx = headers.findIndex((h) => /amount\s*paid/i.test(h));
 
   const pendingPayments = [];
-
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
-
     const saleId = (saleIdIdx !== -1 ? row[saleIdIdx] : row[7])?.toString().trim();
     if (!saleId) continue;
-
     const soldPrice = Number((soldPriceIdx !== -1 ? row[soldPriceIdx] : row[8]) || 0);
     const rawFinalPrice = finalPriceIdx !== -1 ? row[finalPriceIdx] : undefined;
     const finalPriceNum = (rawFinalPrice !== undefined && rawFinalPrice !== null && String(rawFinalPrice).trim() !== "")
-      ? Number(String(rawFinalPrice).replace(/[^\d.-]/g, ""))
-      : NaN;
+      ? Number(String(rawFinalPrice).replace(/[^\d.-]/g, "")) : NaN;
     const effectivePrice = !isNaN(finalPriceNum) && finalPriceNum > 0 ? finalPriceNum : soldPrice;
-
     const amountPaid = Number((amountPaidIdx !== -1 ? row[amountPaidIdx] : row[11]) || 0);
     const balanceDue = Math.max(0, effectivePrice - amountPaid);
-
-    // Payment Status: Fully Paid when Amount Paid >= Final Price, else Pending / Partial
-    const paymentStatus = amountPaid >= effectivePrice
-      ? "Fully Paid"
-      : (amountPaid > 0 ? "Partial" : "Pending");
-
-    // Filter rows where Payment Status is "Fully Paid"
-    if (paymentStatus === "Fully Paid" || balanceDue <= 0) {
-      continue;
-    }
-
-    const customerName = (customerNameIdx !== -1 ? row[customerNameIdx] : row[4])?.toString().trim() || "—";
-    const customerPhone = (customerPhoneIdx !== -1 ? row[customerPhoneIdx] : row[5])?.toString().trim() || "";
-    const bikeName = (bikeNameIdx !== -1 ? row[bikeNameIdx] : row[1])?.toString().trim() || "—";
-    const buyerType = (buyerTypeIdx !== -1 ? row[buyerTypeIdx] : row[9])?.toString().trim() || "Individual";
-    const date = (dateIdx !== -1 ? row[dateIdx] : row[0])?.toString().trim() || "";
+    const paymentStatus = amountPaid >= effectivePrice ? "Fully Paid" : (amountPaid > 0 ? "Partial" : "Pending");
+    if (paymentStatus === "Fully Paid" || balanceDue <= 0) continue;
 
     pendingPayments.push({
       saleId,
-      customerName,
-      customerPhone,
-      bikeName,
-      buyerType,
+      customerName: (customerNameIdx !== -1 ? row[customerNameIdx] : row[4])?.toString().trim() || "—",
+      customerPhone: (customerPhoneIdx !== -1 ? row[customerPhoneIdx] : row[5])?.toString().trim() || "",
+      bikeName: (bikeNameIdx !== -1 ? row[bikeNameIdx] : row[1])?.toString().trim() || "—",
+      buyerType: (buyerTypeIdx !== -1 ? row[buyerTypeIdx] : row[9])?.toString().trim() || "Individual",
       soldPrice: effectivePrice,
       amountPaid,
       balanceDue,
       paymentStatus,
-      date,
-      rowIndex: r + 1, // 1-based row number
+      date: (dateIdx !== -1 ? row[dateIdx] : row[0])?.toString().trim() || "",
+      rowIndex: r + 1,
     });
   }
 
-  return jsonResponse({
-    success: true,
-    pendingPayments,
-  });
+  const result = { success: true, pendingPayments };
+  paymentsCache.set(cacheKey, { data: result, exp: Date.now() + 20_000 });
+
+  timer.log("get-pending-payments");
+  const timingHeader = timer.getHeader();
+  return jsonResponse(result, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
 });

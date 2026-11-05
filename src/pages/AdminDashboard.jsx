@@ -203,10 +203,10 @@ function BikeFormModal({ initialData, onSave, onClose }) {
           {/* Row 3: Price + Offer Price */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Price (NPR)" required>
-              <input className={inputCls} type="number" value={form.price} onChange={set('price')} placeholder="e.g. 290900" min="0" required />
+              <input className={inputCls} type="number" step="any" value={form.price} onChange={set('price')} placeholder="e.g. 290900" min="0" required />
             </Field>
             <Field label="Offer Price (NPR) — optional">
-              <input className={inputCls} type="number" value={form.offer_price} onChange={set('offer_price')} placeholder="Leave blank if none" min="0" />
+              <input className={inputCls} type="number" step="any" value={form.offer_price} onChange={set('offer_price')} placeholder="Leave blank if none" min="0" />
             </Field>
           </div>
 

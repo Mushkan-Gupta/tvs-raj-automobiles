@@ -40,6 +40,16 @@ Legend: [ ] todo, [~] in progress, [x] done. Order changed (Nov 2026): **Track 1
 - [x] Stock reduction sync in `record-sale` & `review-sale` for extras sold
 - [x] Admin UI (/admin/parts): non-blocking sheet sync on save/deactivate/delete, "Sync all to Sheet" button with advisory note
 
+### P1: Speed + Form Fixes
+- [x] Form inputs: changed money inputs to `step="any"` (SaleAdjustments, PartFormModal, AdminDashboard, PendingPayments)
+- [x] AuthContext: loading only on initial session load; prevent unmounting on TOKEN_REFRESHED; in-memory & sessionStorage role caching
+- [x] Form drafts: `useDraft` hook to persist Employee sale form, stock-arrival form, and Add Part modal in sessionStorage
+- [x] Edge function performance: ServerTimer and `Server-Timing` header exposed via CORS
+- [x] OAuth token caching: `getGoogleAccessToken` caches token and CryptoKey in memory with promise de-duplication
+- [x] Role lookup cache: 30s TTL in `_shared/auth.ts`
+- [x] Parallelization & batching: `record-sale`, `review-sale`, `get-admin-overview`, `get-pending-documents`, `get-pending-payments`, `update-payment`, `update-documents`, `sync-to-sheets`
+- [x] Stale-while-revalidate: AdminOverview, PendingPayments, PendingDocuments load cached data from sessionStorage with subtle "Updating..." indicator and cache bypass on manual refresh / post-write
+
 ### A3: Discounts (admin)
 - [ ] `discounts` table + RLS (admin write, public read active)
 - [ ] Admin UI: per-product %, start/end date, "apply to all bikes", "apply to all parts"

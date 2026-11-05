@@ -47,6 +47,7 @@ Decisions and gotchas so a new session (human or AI) does not lose context. Add 
 - Coding tool: Antigravity
 
 ## Change log
+- 2026-11-05: Step P1 completed (Speed + Form Fixes: money step="any", AuthContext session-only loading & role cache, useDraft hook for form persistence across tab switches, ServerTimer & Server-Timing headers, Google OAuth token & CryptoKey in-memory caching with promise de-duplication, batchGetSheetValues parallelization across edge functions, 20s in-memory Sheet cache with bypass, frontend SWR for AdminOverview, PendingPayments, PendingDocuments).
 - 2026-11-05: Step A2b completed (Parts tab sync in Google Sheet: shared helper _shared/parts_sheet.ts, sync-parts-to-sheet edge function, stock cell updates on sales in record-sale & review-sale, AdminParts background sync + "Sync all to Sheet" button with owner note).
 - 2026-11-03: Step A2 completed (migration 20261103152338_a2_sale_v2.sql, pure pricing module & tests, record-sale & review-sale edge functions, Google Sheets A2 columns + get-pending-payments/update-payment/get-admin-overview Final Price fallback, employee sale form v2 with modular components, and /admin/approvals queue with AdminNav badge).
 - 2026-11-03: Step A1 completed (migration 20261103021000_a1_price_parts.sql, bikes price confirmation in AdminDashboard, /admin/parts portal with confidential cost price & photo uploads).

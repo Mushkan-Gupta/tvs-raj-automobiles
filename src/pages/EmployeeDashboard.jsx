@@ -8,6 +8,7 @@ import {
   Banknote, Building2, CreditCard, FileText, Send
 } from 'lucide-react';
 import { getEffectiveBikePrice, computeSale } from '../lib/pricing';
+import { useDraft } from '../lib/useDraft';
 import SaleAdjustments from '../components/sale/SaleAdjustments';
 import SaleExtras from '../components/sale/SaleExtras';
 import SaleSummary from '../components/sale/SaleSummary';
@@ -202,6 +203,70 @@ export default function EmployeeDashboard() {
   const [extras, setExtras] = useState([]);
   const [refreshRequests, setRefreshRequests] = useState(0);
 
+  // ── Draft Persistence (survives tab switches and page navigations) ──
+  const saleDraftState = useMemo(() => ({
+    bikeId: form.bikeId,
+    quantity: form.quantity,
+    customerName: form.customerName,
+    customerPhone: form.customerPhone,
+    buyerType: form.buyerType,
+    paymentStatus: form.paymentStatus,
+    amountPaid: form.amountPaid,
+    discountType,
+    discountValue,
+    paperworkCharge,
+    modificationCharge,
+    modificationNote,
+    extras,
+  }), [form, discountType, discountValue, paperworkCharge, modificationCharge, modificationNote, extras]);
+
+  const restoreSaleDraft = useCallback((draft) => {
+    if (!draft) return;
+    setForm((prev) => ({
+      ...prev,
+      action: 'sale',
+      bikeId: draft.bikeId ?? prev.bikeId,
+      quantity: draft.quantity ?? prev.quantity,
+      customerName: draft.customerName ?? prev.customerName,
+      customerPhone: draft.customerPhone ?? prev.customerPhone,
+      buyerType: draft.buyerType ?? prev.buyerType,
+      paymentStatus: draft.paymentStatus ?? prev.paymentStatus,
+      amountPaid: draft.amountPaid ?? prev.amountPaid,
+    }));
+    if (draft.discountType) setDiscountType(draft.discountType);
+    if (draft.discountValue !== undefined) setDiscountValue(draft.discountValue);
+    if (draft.paperworkCharge !== undefined) setPaperworkCharge(draft.paperworkCharge);
+    if (draft.modificationCharge !== undefined) setModificationCharge(draft.modificationCharge);
+    if (draft.modificationNote !== undefined) setModificationNote(draft.modificationNote);
+    if (Array.isArray(draft.extras)) setExtras(draft.extras);
+  }, []);
+
+  const { clearDraft: clearSaleDraft } = useDraft(
+    'employee_sale_form',
+    form.action === 'sale' ? saleDraftState : null,
+    restoreSaleDraft
+  );
+
+  const arrivalDraftState = useMemo(() => ({
+    bikeId: form.bikeId,
+    quantity: form.quantity,
+  }), [form.bikeId, form.quantity]);
+
+  const restoreArrivalDraft = useCallback((draft) => {
+    if (!draft) return;
+    setForm((prev) => ({
+      ...prev,
+      bikeId: draft.bikeId ?? prev.bikeId,
+      quantity: draft.quantity ?? prev.quantity,
+    }));
+  }, []);
+
+  const { clearDraft: clearArrivalDraft } = useDraft(
+    'employee_arrival_form',
+    form.action === 'arrival' ? arrivalDraftState : null,
+    restoreArrivalDraft
+  );
+
   // ── Recent activity ──
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(true);
@@ -346,6 +411,7 @@ export default function EmployeeDashboard() {
     setModificationNote('');
     setExtras([]);
     setRequestId(crypto.randomUUID());
+    clearSaleDraft();
   };
 
   // ─── Submit handler ────────────────────────────────────────────────────
@@ -518,6 +584,7 @@ export default function EmployeeDashboard() {
         showToast('Stock updated successfully ✓');
       }
       setForm(EMPTY_FORM);
+      clearArrivalDraft();
       fetchBikes();
       fetchLogs();
     } catch (err) {
@@ -851,6 +918,7 @@ export default function EmployeeDashboard() {
                                 className={inputCls + ' pl-9'}
                                 type="number"
                                 min="0"
+                                step="any"
                                 placeholder={form.paymentStatus === 'Pending' ? '0' : 'e.g. 50000'}
                                 value={form.amountPaid}
                                 onChange={set('amountPaid')}

@@ -79,14 +79,42 @@ export default function PendingDocuments() {
   const { user, role } = useAuth();
   const navigate = useNavigate();
 
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [documents, setDocuments] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pending_documents_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pending_documents_cache');
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
   const [search, setSearch] = useState('');
   const [filterBuyer, setFilterBuyer] = useState('ALL');
   const [toast, setToast] = useState(null);
 
   // Local state tracking modified checkboxes per saleId: { [saleId]: { [colName]: boolean } }
-  const [localCheckboxes, setLocalCheckboxes] = useState({});
+  const [localCheckboxes, setLocalCheckboxes] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pending_documents_cache');
+      if (cached) {
+        const docs = JSON.parse(cached);
+        const initialMap = {};
+        docs.forEach((doc) => {
+          initialMap[doc.saleId] = { ...(doc.checkboxes || {}) };
+        });
+        return initialMap;
+      }
+    } catch {}
+    return {};
+  });
   const [savingSaleId, setSavingSaleId] = useState(null);
 
   const showToast = (message, type = 'success') => {
@@ -94,10 +122,16 @@ export default function PendingDocuments() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchPendingDocuments = useCallback(async () => {
-    setLoading(true);
+  const fetchPendingDocuments = useCallback(async (isManual = false) => {
+    if (documents.length > 0) {
+      setIsUpdating(true);
+    } else {
+      setLoading(true);
+    }
     try {
-      const { data, error } = await supabase.functions.invoke('get-pending-documents');
+      const { data, error } = await supabase.functions.invoke(
+        isManual ? 'get-pending-documents?fresh=true' : 'get-pending-documents'
+      );
       if (error) {
         let detail = error.message;
         try {
@@ -112,6 +146,9 @@ export default function PendingDocuments() {
       } else {
         const docs = data?.documents || [];
         setDocuments(docs);
+        try {
+          sessionStorage.setItem('pending_documents_cache', JSON.stringify(docs));
+        } catch {}
         // Initialize local checkboxes
         const initialMap = {};
         docs.forEach((doc) => {
@@ -124,12 +161,14 @@ export default function PendingDocuments() {
       showToast('Network error loading pending documents.', 'error');
     } finally {
       setLoading(false);
+      setIsUpdating(false);
     }
-  }, []);
+  }, [documents.length]);
 
   useEffect(() => {
-    fetchPendingDocuments();
-  }, [fetchPendingDocuments]);
+    fetchPendingDocuments(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCheckboxToggle = (saleId, colName) => {
     setLocalCheckboxes((prev) => {
@@ -258,14 +297,20 @@ export default function PendingDocuments() {
         </div>
 
         <div className="flex items-center gap-3">
+          {isUpdating && (
+            <span className="text-xs text-blue-400 font-medium flex items-center gap-1.5 animate-pulse bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Updating...
+            </span>
+          )}
           <button
-            onClick={fetchPendingDocuments}
-            disabled={loading}
+            onClick={() => fetchPendingDocuments(true)}
+            disabled={loading || isUpdating}
             className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-300 hover:text-white hover:bg-[#151c2c] text-sm font-semibold transition-colors"
+              text-gray-300 hover:text-white hover:bg-[#151c2c] text-sm font-semibold transition-colors disabled:opacity-50"
             title="Refresh documents"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
           <button

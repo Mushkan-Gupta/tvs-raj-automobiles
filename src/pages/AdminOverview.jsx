@@ -110,19 +110,39 @@ function DonutTooltip({ active, payload }) {
 export default function AdminOverview() {
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
+  const [overviewData, setOverviewData] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('admin_overview_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !sessionStorage.getItem('admin_overview_cache');
+    } catch {
+      return true;
+    }
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState(null);
-  const [overviewData, setOverviewData] = useState(null);
 
   // Toggle for Model Chart: 'revenue' | 'units'
   const [modelMetric, setModelMetric] = useState('revenue');
 
   // Fetch overview data from Supabase Edge Function
-  const fetchOverview = useCallback(async () => {
-    setLoading(true);
+  const fetchOverview = useCallback(async (isManual = false) => {
+    if (overviewData) {
+      setIsUpdating(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const { data, error: funcError } = await supabase.functions.invoke('get-admin-overview');
+      const { data, error: funcError } = await supabase.functions.invoke(
+        isManual ? 'get-admin-overview?fresh=true' : 'get-admin-overview'
+      );
 
       if (funcError) {
         let detail = funcError.message;
@@ -137,6 +157,9 @@ export default function AdminOverview() {
 
       if (data?.data) {
         setOverviewData(data.data);
+        try {
+          sessionStorage.setItem('admin_overview_cache', JSON.stringify(data.data));
+        } catch {}
       } else {
         throw new Error('No data received from overview function.');
       }
@@ -145,12 +168,14 @@ export default function AdminOverview() {
       setError(err.message || 'Failed to load business overview.');
     } finally {
       setLoading(false);
+      setIsUpdating(false);
     }
-  }, []);
+  }, [overviewData]);
 
   useEffect(() => {
-    fetchOverview();
-  }, [fetchOverview]);
+    fetchOverview(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -196,14 +221,20 @@ export default function AdminOverview() {
         </div>
 
         <div className="flex items-center gap-3">
+          {isUpdating && (
+            <span className="text-xs text-blue-400 font-medium flex items-center gap-1.5 animate-pulse bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Updating...
+            </span>
+          )}
           <button
-            onClick={fetchOverview}
-            disabled={loading}
+            onClick={() => fetchOverview(true)}
+            disabled={loading || isUpdating}
             className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
               text-gray-300 hover:text-white hover:bg-[#151c2c] text-sm font-semibold transition-colors disabled:opacity-50"
             title="Refresh analytics data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0066CC]' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh Data</span>
           </button>
           <button

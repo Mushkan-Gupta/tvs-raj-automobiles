@@ -26,12 +26,14 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole, sheetSafe, validatePublicInquiry } from "../_shared/auth.ts";
+import { getGoogleAccessToken } from "../_shared/google.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
 // Helper: build a JSON response with CORS headers
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
@@ -44,6 +46,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
+
+  const timer = new ServerTimer();
 
   // --- Only allow POST ------------------------------------------------------
   if (req.method !== "POST") {
@@ -112,7 +116,9 @@ Deno.serve(async (req: Request) => {
 
     let accessToken: string;
     try {
-      accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+      accessToken = await timer.measure("google_token", () =>
+        getGoogleAccessToken(clientEmail, privateKeyPem)
+      );
     } catch (err) {
       return jsonResponse({ error: "Failed to authenticate with Google.", detail: String(err) }, 500);
     }
@@ -125,15 +131,23 @@ Deno.serve(async (req: Request) => {
     const rowValues = [formattedDate, stockLog.name, stockLog.phone, stockLog.interested_model, stockLog.message];
     const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Inquiries")}!A1:E1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
     
-    const appendRes = await fetch(appendUrl, {
-      method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ values: [rowValues] }),
-    });
+    const appendRes = await timer.measure("sheets_write", () =>
+      fetch(appendUrl, {
+        method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: [rowValues] }),
+      })
+    );
 
     if (!appendRes.ok) {
       return jsonResponse({ error: "Google Sheets append to Inquiries failed.", detail: await appendRes.text() }, 500);
     }
-    return jsonResponse({ success: true, message: "Inquiry synced to Google Sheets." });
+    timer.log("sync-to-sheets:inquiry");
+    const timingHeader = timer.getHeader();
+    return jsonResponse(
+      { success: true, message: "Inquiry synced to Google Sheets." },
+      200,
+      { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" }
+    );
   }
 
   // --- Handle 'inquiry_status_update' type specifically ---
@@ -154,7 +168,9 @@ Deno.serve(async (req: Request) => {
 
     let accessToken: string;
     try {
-      accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+      accessToken = await timer.measure("google_token", () =>
+        getGoogleAccessToken(clientEmail, privateKeyPem)
+      );
     } catch (err) {
       return jsonResponse({ error: "Failed to authenticate with Google.", detail: String(err) }, 500);
     }
@@ -165,7 +181,9 @@ Deno.serve(async (req: Request) => {
     });
 
     const getUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Inquiries")}!A:C`;
-    const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const getRes = await timer.measure("sheets_read", () =>
+      fetch(getUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+    );
     if (!getRes.ok) return jsonResponse({ error: "Failed to read Inquiries tab.", detail: await getRes.text() }, 500);
 
     const getData = await getRes.json();
@@ -186,16 +204,24 @@ Deno.serve(async (req: Request) => {
 
     const updateRange = `Inquiries!F${rowIndex}:F${rowIndex}`;
     const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
-    const updateRes = await fetch(updateUrl, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ range: updateRange, majorDimension: "ROWS", values: [[stockLog.status]] }),
-    });
+    const updateRes = await timer.measure("sheets_write", () =>
+      fetch(updateUrl, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ range: updateRange, majorDimension: "ROWS", values: [[stockLog.status]] }),
+      })
+    );
 
     if (!updateRes.ok) {
       return jsonResponse({ error: "Failed to update inquiry status.", detail: await updateRes.text() }, 500);
     }
-    return jsonResponse({ success: true, message: "Inquiry status updated in Google Sheets." });
+    timer.log("sync-to-sheets:inquiry_status_update");
+    const timingHeader = timer.getHeader();
+    return jsonResponse(
+      { success: true, message: "Inquiry status updated in Google Sheets." },
+      200,
+      { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" }
+    );
   }
 
   // Validate required fields
@@ -236,17 +262,45 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Supabase environment variables not available." }, 500);
   }
 
-  // Query the bikes table — fetch name, category, and quantity
-  const bikeRes = await fetch(
-    `${supabaseUrl}/rest/v1/bikes?id=eq.${stockLog.bike_id}&select=name,category,quantity`,
-    {
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        "Content-Type": "application/json",
-      },
-    }
+  // ============================================================
+  // STEP 3: Get a Google OAuth2 access token using a service account JWT
+  // ============================================================
+
+  const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
+  // The private key stored in secrets uses literal \n — replace them with real newlines
+  const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
+
+  if (!clientEmail || !privateKeyPem) {
+    return jsonResponse({ error: "GOOGLE_CLIENT_EMAIL or GOOGLE_PRIVATE_KEY environment variable is missing." }, 500);
+  }
+
+  // ── Fetch bike + token in parallel ────────────────────────────────────────
+  const bikePromise = timer.measure("db", () =>
+    fetch(
+      `${supabaseUrl}/rest/v1/bikes?id=eq.${stockLog.bike_id}&select=name,category,quantity`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    )
   );
+  const tokenPromise = timer.measure("google_token", () =>
+    getGoogleAccessToken(clientEmail, privateKeyPem!)
+  );
+
+  let bikeRes: Response;
+  let accessToken: string;
+  try {
+    [bikeRes, accessToken] = await Promise.all([bikePromise, tokenPromise]);
+  } catch (err) {
+    return jsonResponse({
+      error: "Failed to fetch bike data or authenticate with Google.",
+      detail: err instanceof Error ? err.message : String(err),
+    }, 500);
+  }
 
   if (!bikeRes.ok) {
     const errText = await bikeRes.text();
@@ -260,28 +314,6 @@ Deno.serve(async (req: Request) => {
   }
 
   const bike = bikes[0] as { name: string; category: string; quantity: number };
-
-  // ============================================================
-  // STEP 3: Get a Google OAuth2 access token using a service account JWT
-  // ============================================================
-
-  const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
-  // The private key stored in secrets uses literal \n — replace them with real newlines
-  const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
-
-  if (!clientEmail || !privateKeyPem) {
-    return jsonResponse({ error: "GOOGLE_CLIENT_EMAIL or GOOGLE_PRIVATE_KEY environment variable is missing." }, 500);
-  }
-
-  let accessToken: string;
-  try {
-    accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
-  } catch (err) {
-    return jsonResponse({
-      error: "Failed to authenticate with Google.",
-      detail: err instanceof Error ? err.message : String(err),
-    }, 500);
-  }
 
   // ============================================================
   // STEP 4: Append a row to the correct log tab ("Arrivals" or "Sold")
@@ -674,6 +706,8 @@ Deno.serve(async (req: Request) => {
   // ============================================================
   // STEP 6: Return success response
   // ============================================================
+  timer.log("sync-to-sheets");
+  const timingHeader = timer.getHeader();
   return jsonResponse({
     success: true,
     message: isArrival
@@ -686,115 +720,6 @@ Deno.serve(async (req: Request) => {
     bikeName: bike.name,
     category: bike.category,
     newStock: bike.quantity,
-  });
+  }, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
 });
 
-// =============================================================================
-// HELPER: getGoogleAccessToken
-//
-// Signs a JWT with the service account private key and exchanges it for an
-// OAuth2 access token from Google's token endpoint.
-//
-// @param clientEmail   - The service account email (iss claim)
-// @param privateKeyPem - The RSA private key in PEM format
-// @returns A short-lived Bearer token string
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  // 1. Import the private key into the Web Crypto API (available in Deno)
-  const privateKey = await importPrivateKey(privateKeyPem);
-
-  // 2. Build the JWT payload
-  const now = Math.floor(Date.now() / 1000); // current time in seconds
-  const payload = {
-    iss: clientEmail,   // issuer (service account)
-    sub: clientEmail,   // subject (same as issuer for service accounts)
-    scope: "https://www.googleapis.com/auth/spreadsheets", // only need Sheets access
-    aud: "https://oauth2.googleapis.com/token",            // token endpoint
-    iat: now,           // issued at
-    exp: now + 3600,    // expires in 1 hour
-  };
-
-  // 3. Build the JWT header
-  const header = { alg: "RS256", typ: "JWT" };
-
-  // 4. Base64url-encode header and payload (JWT format)
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-
-  // 5. Sign the JWT using RS256 (RSASSA-PKCS1-v1_5 with SHA-256)
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  // 6. Base64url-encode the signature
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  // 7. Exchange the signed JWT for an OAuth2 access token
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-
-  if (!tokenData.access_token) {
-    throw new Error(`No access_token in Google response: ${JSON.stringify(tokenData)}`);
-  }
-
-  return tokenData.access_token as string;
-}
-
-// =============================================================================
-// HELPER: importPrivateKey
-//
-// Converts a PEM-formatted RSA private key string into a CryptoKey that
-// the Web Crypto API can use for signing.
-//
-// PEM format looks like:
-//   -----BEGIN PRIVATE KEY-----
-//   <base64-encoded DER bytes>
-//   -----END PRIVATE KEY-----
-// =============================================================================
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  // Strip the PEM header/footer lines and whitespace, leaving only base64
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, ""); // remove all whitespace/newlines
-
-  // Decode base64 to raw binary (DER format)
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-
-  // Import using Web Crypto — algorithm must match what we'll sign with (RS256)
-  return await crypto.subtle.importKey(
-    "pkcs8",              // private key format
-    binaryDer.buffer,     // the raw key bytes
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: "SHA-256",
-    },
-    false,                // not extractable
-    ["sign"]              // only need signing capability
-  );
-}

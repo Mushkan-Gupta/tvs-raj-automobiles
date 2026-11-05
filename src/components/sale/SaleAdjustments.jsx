@@ -56,7 +56,7 @@ export default function SaleAdjustments({
               <input
                 type="number"
                 min="0"
-                step={discountType === 'percent' ? '0.5' : '100'}
+                step="any"
                 className={inputCls}
                 placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 10000'}
                 value={discountValue}
@@ -76,7 +76,7 @@ export default function SaleAdjustments({
           <input
             type="number"
             min="0"
-            step="100"
+            step="any"
             className={inputCls}
             placeholder="e.g. 2000"
             value={paperworkCharge}
@@ -94,7 +94,7 @@ export default function SaleAdjustments({
           <input
             type="number"
             min="0"
-            step="100"
+            step="any"
             className={inputCls}
             placeholder="e.g. 1500"
             value={modificationCharge}

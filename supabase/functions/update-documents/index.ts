@@ -4,11 +4,13 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
+import { getGoogleAccessToken } from "../_shared/google.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
@@ -95,7 +97,8 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const auth = await requireRole(req, ["admin", "employee"]);
+  const timer = new ServerTimer();
+  const auth = await timer.measure("auth", () => requireRole(req, ["admin", "employee"]));
   if (auth instanceof Response) return auth;
 
   if (req.method !== "POST") {
@@ -128,7 +131,9 @@ Deno.serve(async (req: Request) => {
 
   let accessToken: string;
   try {
-    accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    accessToken = await timer.measure("google_token", () =>
+      getGoogleAccessToken(clientEmail, privateKeyPem!)
+    );
   } catch (err) {
     return jsonResponse({
       error: "Failed to authenticate with Google.",
@@ -138,7 +143,9 @@ Deno.serve(async (req: Request) => {
 
   // 1. Fetch current Documents tab
   const docUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!A:Z`;
-  const docRes = await fetch(docUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const docRes = await timer.measure("sheets_read", () =>
+    fetch(docUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+  );
 
   if (!docRes.ok) {
     const errText = await docRes.text();
@@ -249,18 +256,20 @@ Deno.serve(async (req: Request) => {
   const updateRange = `Documents!A${targetRowIndex}:${lastColLetter}${targetRowIndex}`;
   const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
 
-  const updateRes = await fetch(updateUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      range: updateRange,
-      majorDimension: "ROWS",
-      values: [currentRow],
-    }),
-  });
+  const updateRes = await timer.measure("sheets_write", () =>
+    fetch(updateUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        range: updateRange,
+        majorDimension: "ROWS",
+        values: [currentRow],
+      }),
+    })
+  );
 
   if (!updateRes.ok) {
     const errText = await updateRes.text();
@@ -279,6 +288,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  timer.log("update-documents");
+  const timingHeader = timer.getHeader();
   return jsonResponse({
     success: true,
     message: isHandoverReady
@@ -291,72 +302,6 @@ Deno.serve(async (req: Request) => {
       handoverReady: isHandoverReady,
       updatedRange: updateRange,
     },
-  });
+  }, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
 });
 
-// =============================================================================
-// OAuth Helpers
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-}

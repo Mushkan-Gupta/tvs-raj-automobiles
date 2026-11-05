@@ -5,11 +5,12 @@
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
 import { getGoogleAccessToken, colToLetter } from "../_shared/google.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
@@ -18,7 +19,8 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const auth = await requireRole(req, ["admin", "employee"]);
+  const timer = new ServerTimer();
+  const auth = await timer.measure("auth", () => requireRole(req, ["admin", "employee"]));
   if (auth instanceof Response) return auth;
 
   if (req.method !== "POST") {
@@ -57,7 +59,9 @@ Deno.serve(async (req: Request) => {
 
   let accessToken: string;
   try {
-    accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    accessToken = await timer.measure("google_token", () =>
+      getGoogleAccessToken(clientEmail, privateKeyPem!)
+    );
   } catch (err) {
     return jsonResponse({
       error: "Failed to authenticate with Google.",
@@ -67,7 +71,9 @@ Deno.serve(async (req: Request) => {
 
   // 1. Fetch current "Sold" tab
   const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:Z`;
-  const soldRes = await fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const soldRes = await timer.measure("sheets_read", () =>
+    fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+  );
 
   if (!soldRes.ok) {
     const errText = await soldRes.text();
@@ -159,18 +165,20 @@ Deno.serve(async (req: Request) => {
   const updateRange = `Sold!A${targetRowIndex}:${lastColLetter}${targetRowIndex}`;
   const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
 
-  const updateRes = await fetch(updateUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      range: updateRange,
-      majorDimension: "ROWS",
-      values: [currentRow],
-    }),
-  });
+  const updateRes = await timer.measure("sheets_write", () =>
+    fetch(updateUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        range: updateRange,
+        majorDimension: "ROWS",
+        values: [currentRow],
+      }),
+    })
+  );
 
   if (!updateRes.ok) {
     const errText = await updateRes.text();
@@ -183,6 +191,8 @@ Deno.serve(async (req: Request) => {
   const customerName = (customerNameIdx !== -1 ? currentRow[customerNameIdx] : currentRow[4])?.toString() || "—";
   const bikeName = (bikeNameIdx !== -1 ? currentRow[bikeNameIdx] : currentRow[1])?.toString() || "—";
 
+  timer.log("update-payment");
+  const timingHeader = timer.getHeader();
   return jsonResponse({
     success: true,
     message: newPaymentStatus === "Fully Paid"
@@ -198,5 +208,5 @@ Deno.serve(async (req: Request) => {
       paymentStatus: newPaymentStatus,
       updatedRange: updateRange,
     },
-  });
+  }, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
 });

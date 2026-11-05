@@ -4,20 +4,27 @@
 // =============================================================================
 
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
+import { getGoogleAccessToken, batchGetSheetValues } from "../_shared/google.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
+
+// ── 20-second in-memory cache (bypassed after any write) ─────────────────────
+interface CacheEntry { data: unknown; exp: number }
+const docsCache = new Map<string, CacheEntry>();
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const auth = await requireRole(req, ["admin", "employee"]);
+  const timer = new ServerTimer();
+  const auth = await timer.measure("auth", () => requireRole(req, ["admin", "employee"]));
   if (auth instanceof Response) return auth;
 
   const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
@@ -28,9 +35,27 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Missing Google Sheets configuration in environment variables." }, 500);
   }
 
+  const url = new URL(req.url);
+  const bypassCache = url.searchParams.get("fresh") === "true" ||
+                      req.headers.get("cache-control")?.includes("no-cache");
+
+  // ── Check in-memory cache (20 s TTL) ─────────────────────────────────────
+  const cacheKey = `docs:${sheetId}`;
+  const cached = docsCache.get(cacheKey);
+  if (!bypassCache && cached && cached.exp > Date.now()) {
+    const timingHeader = timer.getHeader();
+    return jsonResponse(
+      { ...(cached.data as object), cached: true },
+      200,
+      { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" },
+    );
+  }
+
   let accessToken: string;
   try {
-    accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+    accessToken = await timer.measure("google_token", () =>
+      getGoogleAccessToken(clientEmail, privateKeyPem!)
+    );
   } catch (err) {
     return jsonResponse({
       error: "Failed to authenticate with Google.",
@@ -38,138 +63,102 @@ Deno.serve(async (req: Request) => {
     }, 500);
   }
 
-  // 1. Fetch all rows from "Documents" tab
-  const docUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!A:Z`;
-  const docRes = await fetch(docUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-
-  if (!docRes.ok) {
-    const errText = await docRes.text();
+  // ── Fetch Documents + Sold in one batchGet ────────────────────────────────
+  let batchMap: Map<string, unknown[][]>;
+  try {
+    batchMap = await timer.measure("sheets_read", () =>
+      batchGetSheetValues(accessToken, sheetId, ["Documents!A:Z", "Sold!A:M"])
+    );
+  } catch (err) {
     return jsonResponse({
-      error: 'Failed to read "Documents" tab from Google Sheets.',
-      detail: errText,
+      error: 'Failed to read from Google Sheets.',
+      detail: err instanceof Error ? err.message : String(err),
     }, 500);
   }
 
-  const docData = await docRes.json();
-  const docRows: string[][] = docData.values ?? [];
+  const docRows: string[][] = batchMap.get("Documents!A:Z") as string[][] ?? [];
+  const soldRawRows: string[][] = batchMap.get("Sold!A:M") as string[][] ?? [];
 
   if (docRows.length <= 1) {
-    return jsonResponse({ success: true, documents: [] });
+    const result = { success: true, documents: [], allDocHeaders: [] };
+    docsCache.set(cacheKey, { data: result, exp: Date.now() + 20_000 });
+    timer.log("get-pending-documents");
+    const timingHeader = timer.getHeader();
+    return jsonResponse(result, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
   }
 
   const docHeaders = docRows[0].map((h) => (h ?? "").trim());
-
-  // Locate column indices in Documents tab
   const saleIdIdx = docHeaders.findIndex((h) => /sale\s*id/i.test(h));
   const buyerTypeIdx = docHeaders.findIndex((h) => /buyer\s*type/i.test(h));
   const handoverIdx = docHeaders.findIndex((h) => /handover\s*ready/i.test(h));
   let customerNameIdx = docHeaders.findIndex((h) => /customer\s*name/i.test(h));
   let bikeNameIdx = docHeaders.findIndex((h) => /bike(\s*name)?/i.test(h));
 
-  // If customer name or bike name column is missing from Documents, we look them up from "Sold" tab
+  // Build Sold lookup if Documents is missing name columns
   const soldLookup = new Map<string, { customerName: string; bikeName: string }>();
   if (customerNameIdx === -1 || bikeNameIdx === -1) {
-    try {
-      const soldUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A:M`;
-      const soldRes = await fetch(soldUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (soldRes.ok) {
-        const soldData = await soldRes.json();
-        const soldRows: string[][] = soldData.values ?? [];
-        if (soldRows.length > 1) {
-          const soldHeaders = soldRows[0].map((h) => (h ?? "").trim());
-          const soldSaleIdIdx = soldHeaders.findIndex((h) => /sale\s*id/i.test(h));
-          const soldCustIdx = soldHeaders.findIndex((h) => /customer\s*name/i.test(h));
-          const soldBikeIdx = soldHeaders.findIndex((h) => /bike(\s*name)?/i.test(h));
-
-          for (let i = 1; i < soldRows.length; i++) {
-            const sId = soldRows[i]?.[soldSaleIdIdx !== -1 ? soldSaleIdIdx : 7]?.trim();
-            if (sId) {
-              soldLookup.set(sId, {
-                customerName: (soldCustIdx !== -1 ? soldRows[i]?.[soldCustIdx] : soldRows[i]?.[4]) ?? "—",
-                bikeName: (soldBikeIdx !== -1 ? soldRows[i]?.[soldBikeIdx] : soldRows[i]?.[1]) ?? "—",
-              });
-            }
-          }
+    if (soldRawRows.length > 1) {
+      const soldHeaders = soldRawRows[0].map((h) => (h ?? "").trim());
+      const soldSaleIdIdx = soldHeaders.findIndex((h) => /sale\s*id/i.test(h));
+      const soldCustIdx = soldHeaders.findIndex((h) => /customer\s*name/i.test(h));
+      const soldBikeIdx = soldHeaders.findIndex((h) => /bike(\s*name)?/i.test(h));
+      for (let i = 1; i < soldRawRows.length; i++) {
+        const sId = soldRawRows[i]?.[soldSaleIdIdx !== -1 ? soldSaleIdIdx : 7]?.trim();
+        if (sId) {
+          soldLookup.set(sId, {
+            customerName: (soldCustIdx !== -1 ? soldRawRows[i]?.[soldCustIdx] : soldRawRows[i]?.[4]) ?? "—",
+            bikeName: (soldBikeIdx !== -1 ? soldRawRows[i]?.[soldBikeIdx] : soldRawRows[i]?.[1]) ?? "—",
+          });
         }
       }
-    } catch (soldErr) {
-      console.warn("Could not cross-reference Sold tab for customer/bike names:", soldErr);
     }
   }
 
-  // Identify all checkbox column indices in Documents tab
-  // Checkbox columns are any columns that are not Sale ID, Buyer Type, Customer Name, Bike Name, Date, or Handover Ready
+  // Identify checkbox column indices
   const checkboxCols: { name: string; index: number }[] = [];
   for (let c = 0; c < docHeaders.length; c++) {
     const h = docHeaders[c];
     if (!h) continue;
     if (
-      c === saleIdIdx ||
-      c === buyerTypeIdx ||
-      c === customerNameIdx ||
-      c === bikeNameIdx ||
-      c === handoverIdx ||
+      c === saleIdIdx || c === buyerTypeIdx || c === customerNameIdx ||
+      c === bikeNameIdx || c === handoverIdx ||
       /^(date|created_at|logged\s*by|phone)$/i.test(h)
-    ) {
-      continue;
-    }
+    ) continue;
     checkboxCols.push({ name: h, index: c });
   }
 
-  // ── Buyer-type column classification helpers ─────────────────────────────────
-  // Individual document columns: Citizenship/NID/Passport, Driving License,
-  //                               Passport Photos, PAN Card
-  // Corporate document columns: Company Registration Certificate,
-  //                              Company PAN/VAT Certificate,
-  //                              Board Authorization Letter, Authorized Signatory ID
-  // Common (both): Payment Receipt, Insurance Collected
   function isIndividualDocCol(h: string): boolean {
     const lh = h.trim().toLowerCase();
-    return (
-      lh.includes("citizenship") || lh.includes("nid") ||
-      lh.includes("passport") ||
+    return (lh.includes("citizenship") || lh.includes("nid") || lh.includes("passport") ||
       lh.includes("driving") || lh.includes("license") ||
-      (lh.includes("pan") && !lh.includes("vat") && !lh.includes("company"))
-    );
+      (lh.includes("pan") && !lh.includes("vat") && !lh.includes("company")));
   }
-
   function isCorporateDocCol(h: string): boolean {
     const lh = h.trim().toLowerCase();
-    return (
-      lh.includes("registration") ||
-      lh.includes("company") ||
+    return (lh.includes("registration") || lh.includes("company") ||
       (lh.includes("pan") && lh.includes("vat")) ||
-      lh.includes("board") || lh.includes("authorization") || lh.includes("signatory")
-    );
+      lh.includes("board") || lh.includes("authorization") || lh.includes("signatory"));
   }
-
   function isCommonDocCol(h: string): boolean {
     const lh = h.trim().toLowerCase();
     return lh.includes("payment") || lh.includes("insurance");
   }
-
-  // Returns true if the checkbox column should be shown for the given buyer type
   function isRelevantForBuyer(h: string, buyerType: string): boolean {
     const isIndividual = buyerType.trim().toLowerCase() === "individual";
     if (isCommonDocCol(h)) return true;
     if (isIndividualDocCol(h) && !isCorporateDocCol(h)) return isIndividual;
     if (isCorporateDocCol(h) && !isIndividualDocCol(h)) return !isIndividual;
-    return true; // unknown column — include for everyone
+    return true;
   }
 
   const pendingDocuments = [];
-
   for (let r = 1; r < docRows.length; r++) {
     const row = docRows[r];
     if (!row || row.length === 0) continue;
-
     const saleId = (saleIdIdx !== -1 ? row[saleIdIdx] : row[0])?.trim();
     if (!saleId) continue;
-
     const handoverReadyVal = (handoverIdx !== -1 ? row[handoverIdx] : "")?.trim().toUpperCase();
     const isHandoverReady = handoverReadyVal === "TRUE" || handoverReadyVal === "YES" || handoverReadyVal === "1";
-
-    // Filter out rows where Handover Ready is true
     if (isHandoverReady) continue;
 
     const buyerType = (buyerTypeIdx !== -1 ? row[buyerTypeIdx] : "")?.trim() || "Individual";
@@ -177,97 +166,28 @@ Deno.serve(async (req: Request) => {
     const customerName = (customerNameIdx !== -1 ? row[customerNameIdx]?.trim() : "") || lookedUp?.customerName || "—";
     const bikeName = (bikeNameIdx !== -1 ? row[bikeNameIdx]?.trim() : "") || lookedUp?.bikeName || "—";
 
-    // Build checkboxes, including ONLY columns relevant to this row's buyer type
     const checkboxes: Record<string, boolean> = {};
     for (const col of checkboxCols) {
       if (!isRelevantForBuyer(col.name, buyerType)) continue;
       const cellVal = (row[col.index] ?? "").toString().trim().toUpperCase();
-      // Do not include columns marked "Not Required" as checkboxes
       if (cellVal === "NOT REQUIRED") continue;
       checkboxes[col.name] = cellVal === "TRUE" || cellVal === "YES" || cellVal === "1";
     }
 
     pendingDocuments.push({
-      saleId,
-      buyerType,
-      customerName,
-      bikeName,
-      checkboxes,
-      handoverReady: false,
-      rowIndex: r + 1, // 1-based row number
+      saleId, buyerType, customerName, bikeName, checkboxes,
+      handoverReady: false, rowIndex: r + 1,
     });
   }
 
-  return jsonResponse({
+  const result = {
     success: true,
     documents: pendingDocuments,
     allDocHeaders: checkboxCols.map((c) => c.name),
-  });
-});
-
-// =============================================================================
-// OAuth Helpers
-// =============================================================================
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
   };
+  docsCache.set(cacheKey, { data: result, exp: Date.now() + 20_000 });
 
-  const header = { alg: "RS256", typ: "JWT" };
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const unsignedJwt = `${encode(header)}.${encode(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    privateKey,
-    new TextEncoder().encode(unsignedJwt)
-  );
-
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-  const signedJwt = `${unsignedJwt}.${signature}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: signedJwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Google token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-}
+  timer.log("get-pending-documents");
+  const timingHeader = timer.getHeader();
+  return jsonResponse(result, 200, { "Server-Timing": timingHeader, "Access-Control-Expose-Headers": "Server-Timing" });
+});

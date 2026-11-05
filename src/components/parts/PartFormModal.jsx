@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { useDraft } from '../../lib/useDraft';
 import {
   X,
   Check,
@@ -88,6 +89,50 @@ export default function PartFormModal({
   // Combine category suggestions
   const allCategorySuggestions = Array.from(
     new Set([...existingCategories, ...DEFAULT_CATEGORIES].filter(Boolean))
+  );
+
+  // ── Draft Persistence (Add mode only) ──
+  const partDraftState = useMemo(() => ({
+    name,
+    category,
+    description,
+    price,
+    costPrice,
+    stockQty,
+    lowStockThreshold,
+    imageUrl,
+    isPinned,
+    fitsAll,
+    active,
+    sortOrder,
+    selectedBikeIds: Array.from(selectedBikeIds),
+  }), [name, category, description, price, costPrice, stockQty, lowStockThreshold, imageUrl, isPinned, fitsAll, active, sortOrder, selectedBikeIds]);
+
+  const restorePartDraft = useCallback((draft) => {
+    if (!draft || isEdit) return;
+    if (draft.name !== undefined) setName(draft.name);
+    if (draft.category !== undefined) setCategory(draft.category);
+    if (draft.description !== undefined) setDescription(draft.description);
+    if (draft.price !== undefined) setPrice(draft.price);
+    if (draft.costPrice !== undefined) setCostPrice(draft.costPrice);
+    if (draft.stockQty !== undefined) setStockQty(draft.stockQty);
+    if (draft.lowStockThreshold !== undefined) setLowStockThreshold(draft.lowStockThreshold);
+    if (draft.imageUrl !== undefined) {
+      setImageUrl(draft.imageUrl);
+      setImagePreview(draft.imageUrl);
+    }
+    if (draft.isPinned !== undefined) setIsPinned(draft.isPinned);
+    if (draft.fitsAll !== undefined) setFitsAll(draft.fitsAll);
+    if (draft.active !== undefined) setActive(draft.active);
+    if (draft.sortOrder !== undefined) setSortOrder(draft.sortOrder);
+    if (Array.isArray(draft.selectedBikeIds)) setSelectedBikeIds(new Set(draft.selectedBikeIds));
+  }, [isEdit]);
+
+  const { clearDraft: clearPartDraft } = useDraft(
+    'part_add_form',
+    !isEdit ? partDraftState : null,
+    restorePartDraft,
+    !isEdit
   );
 
   // ─── 1. Load cost price for edit mode (Admin only table: part_costs) ──────
@@ -338,6 +383,10 @@ export default function PartFormModal({
         }
       }
 
+      if (!isEdit) {
+        clearPartDraft();
+      }
+
       onSave(isEdit ? 'updated' : 'added', partId);
     } catch (err) {
       console.error('[PartForm] Save error:', err);
@@ -456,7 +505,7 @@ export default function PartFormModal({
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="any"
                     className={inputCls + ' pl-10 font-semibold'}
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
@@ -477,7 +526,7 @@ export default function PartFormModal({
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="any"
                     className={inputCls + ' pl-10 border-amber-500/30 focus:border-amber-500 focus:ring-amber-500 font-semibold text-amber-300'}
                     value={costPrice}
                     onChange={(e) => setCostPrice(e.target.value)}

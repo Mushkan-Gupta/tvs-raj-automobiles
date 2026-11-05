@@ -29,13 +29,14 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CORS_HEADERS, requireRole } from "../_shared/auth.ts";
 import { computeSale } from "../_shared/pricing.ts";
-import { getGoogleAccessToken, ensureHeaders } from "../_shared/google.ts";
+import { getGoogleAccessToken, ensureHeaders, batchGetSheetValues } from "../_shared/google.ts";
 import { updatePartStockCells } from "../_shared/parts_sheet.ts";
+import { ServerTimer } from "../_shared/timing.ts";
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
@@ -63,8 +64,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Method not allowed. Use POST." }, 405);
   }
 
+  const timer = new ServerTimer();
+
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const auth = await requireRole(req, ["admin", "employee"]);
+  const auth = await timer.measure("auth", () => requireRole(req, ["admin", "employee"]));
   if (auth instanceof Response) return auth;
   const { userId, email: callerEmail, role } = auth;
 
@@ -140,13 +143,27 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // ── Load bike (server-side price; NEVER trust browser price) ──────────────
-  const { data: bike, error: bikeErr } = await sb
-    .from("bikes")
-    .select("id, name, price, quantity, availability, low_stock_threshold")
-    .eq("id", bike_id)
-    .single();
+  // ── Load bike + parts in parallel ─────────────────────────────────────────
+  interface PartRow {
+    id: string;
+    name: string;
+    price: number;
+    stock_qty: number;
+    active: boolean;
+  }
+  const partIds = extrasRaw.map((ex) => ex.part_id as string);
 
+  const [bikeResult, partsResult] = await timer.measure("db", () => Promise.all([
+    sb.from("bikes")
+      .select("id, name, price, quantity, availability, low_stock_threshold")
+      .eq("id", bike_id)
+      .single(),
+    partIds.length > 0
+      ? sb.from("parts").select("id, name, price, stock_qty, active").in("id", partIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]));
+
+  const { data: bike, error: bikeErr } = bikeResult;
   if (bikeErr || !bike) {
     return jsonResponse({ error: "Bike not found." }, 404);
   }
@@ -159,31 +176,15 @@ Deno.serve(async (req: Request) => {
     }, 422);
   }
 
-  // ── Load parts (server-side prices; never trust browser) ──────────────────
-  interface PartRow {
-    id: string;
-    name: string;
-    price: number;
-    stock_qty: number;
-    active: boolean;
-  }
-  const partIds = extrasRaw.map((ex) => ex.part_id as string);
   let partsMap = new Map<string, PartRow>();
-
   if (partIds.length > 0) {
-    const { data: partsData, error: partsErr } = await sb
-      .from("parts")
-      .select("id, name, price, stock_qty, active")
-      .in("id", partIds);
-
+    const { data: partsData, error: partsErr } = partsResult;
     if (partsErr) {
       return jsonResponse({ error: "Failed to load parts." }, 500);
     }
-
     for (const p of (partsData ?? []) as PartRow[]) {
       partsMap.set(p.id, p);
     }
-
     // Validate each extra
     for (const ex of extrasRaw) {
       const part = partsMap.get(ex.part_id as string);
@@ -293,30 +294,32 @@ Deno.serve(async (req: Request) => {
 
   let saleLogId: number;
   try {
-    const { data: commitData, error: commitErr } = await sb.rpc("commit_sale", {
-      p_bike_id: bike_id,
-      p_quantity: quantity,
-      p_logged_by: callerEmail ?? "unknown",
-      p_employee_id: userId,
-      p_customer_name: customer_name,
-      p_customer_phone: customer_phone,
-      p_buyer_type: buyer_type,
-      p_payment_status: payment_status,
-      p_amount_paid: amount_paid,
-      p_request_id: request_id,
-      p_original_price: computed.base,
-      p_discount_type: discountInput?.type ?? null,
-      p_discount_value: discountInput?.value ?? null,
-      p_discount_amount: computed.discount_amount,
-      p_paperwork_charge: paperwork_charge,
-      p_modification_charge: modification_charge,
-      p_modification_note: modification_note || null,
-      p_extras_total: computed.extras_total,
-      p_final_price: computed.final_price,
-      p_approved_by: approvedBy,
-      p_approved_at: approvedAt,
-      p_extras: extrasForCommit,
-    });
+    const { data: commitData, error: commitErr } = await timer.measure("db_commit", () =>
+      sb.rpc("commit_sale", {
+        p_bike_id: bike_id,
+        p_quantity: quantity,
+        p_logged_by: callerEmail ?? "unknown",
+        p_employee_id: userId,
+        p_customer_name: customer_name,
+        p_customer_phone: customer_phone,
+        p_buyer_type: buyer_type,
+        p_payment_status: payment_status,
+        p_amount_paid: amount_paid,
+        p_request_id: request_id,
+        p_original_price: computed.base,
+        p_discount_type: discountInput?.type ?? null,
+        p_discount_value: discountInput?.value ?? null,
+        p_discount_amount: computed.discount_amount,
+        p_paperwork_charge: paperwork_charge,
+        p_modification_charge: modification_charge,
+        p_modification_note: modification_note || null,
+        p_extras_total: computed.extras_total,
+        p_final_price: computed.final_price,
+        p_approved_by: approvedBy,
+        p_approved_at: approvedAt,
+        p_extras: extrasForCommit,
+      })
+    );
 
     if (commitErr) {
       return jsonResponse({ error: commitErr.message }, 422);
@@ -337,21 +340,37 @@ Deno.serve(async (req: Request) => {
 
   if (clientEmail && privateKeyPem && sheetId) {
     try {
-      const accessToken = await getGoogleAccessToken(clientEmail, privateKeyPem);
+      // Get token + fetch new stock level in parallel
+      const [accessToken, freshBikeRes] = await timer.measure("google_token_and_stock", () =>
+        Promise.all([
+          getGoogleAccessToken(clientEmail, privateKeyPem!),
+          sb.from("bikes").select("quantity").eq("id", bike_id).single(),
+        ])
+      );
+      const newStockLevel = freshBikeRes.data?.quantity ?? 0;
 
-      // Fetch fresh bike data for new stock level
-      const { data: freshBike } = await sb
-        .from("bikes")
-        .select("quantity")
-        .eq("id", bike_id)
-        .single();
-      const newStockLevel = freshBike?.quantity ?? 0;
-
-      // Generate Sale ID (same format as existing sync-to-sheets)
+      // Generate Sale ID
       saleId = `SALE-${Date.now().toString(36).toUpperCase()}`;
 
-      // Ensure A2 headers exist in Sold tab
-      const headers = await ensureHeaders(accessToken, sheetId, "Sold", A2_SOLD_HEADERS);
+      // Batch-read Sold!1:1, Documents!1:1, Stock!A:A in one API call
+      const batchRanges = ["Sold!1:1", "Documents!1:1", "Stock!A:A"];
+      const batchData = await timer.measure("sheets_read", () =>
+        batchGetSheetValues(accessToken, sheetId!, batchRanges)
+      );
+
+      let soldHeaders: string[] = (batchData.get("Sold!1:1")?.[0] ?? []).map((h) => String(h).trim());
+      const docHeaders: string[] = (batchData.get("Documents!1:1")?.[0] ?? []).map((h) => String(h).trim());
+      const stockColA: string[][] = (batchData.get("Stock!A:A") ?? []) as string[][];
+
+      // Ensure A2 headers in Sold (may append if missing — not in batch to avoid complexity)
+      const missingHeaders = A2_SOLD_HEADERS.filter(
+        (h) => !soldHeaders.some((e) => e.toLowerCase() === h.toLowerCase())
+      );
+      if (missingHeaders.length > 0) {
+        soldHeaders = await timer.measure("sheets_ensure_headers", () =>
+          ensureHeaders(accessToken, sheetId!, "Sold", A2_SOLD_HEADERS)
+        );
+      }
 
       const formattedDate = new Date().toLocaleString("en-IN", {
         day: "2-digit", month: "short", year: "numeric",
@@ -364,7 +383,6 @@ Deno.serve(async (req: Request) => {
         : amount_paid;
       const balanceDue = Math.max(0, computed.final_price - finalAmountPaid);
 
-      // Extra products text: "TVS Helmet x1; Guard x2"
       const extraProductsText = extrasForCommit
         .map((ex) => `${ex.part_name} x${ex.qty}`)
         .join("; ");
@@ -378,7 +396,6 @@ Deno.serve(async (req: Request) => {
         approverEmail = callerEmail ?? "";
       }
 
-      // Build value map (header-name keyed)
       const valueMap: Record<string, string | number> = {
         "date": formattedDate,
         "sale id": saleId,
@@ -387,13 +404,12 @@ Deno.serve(async (req: Request) => {
         "logged by": callerEmail ?? "unknown",
         "customer name": customer_name,
         "customer phone": customer_phone,
-        "sold price": computed.sold_price,      // bike price*qty minus discount
+        "sold price": computed.sold_price,
         "buyer type": buyer_type,
         "payment status": payment_status,
         "amount paid": finalAmountPaid,
         "balance due": balanceDue,
         "new stock level": newStockLevel,
-        // A2 new columns
         "original price": computed.base,
         "discount type": discountInput?.type ?? "",
         "discount value": discountInput?.value ?? "",
@@ -408,10 +424,9 @@ Deno.serve(async (req: Request) => {
         "approved by": approverEmail,
       };
 
-      const rowValues = headers.map((h) => {
+      const rowValues = soldHeaders.map((h) => {
         const key = h.trim().toLowerCase();
         if (valueMap[key] !== undefined) return valueMap[key];
-        // Fuzzy matches for common header variations
         if (key.includes("sale") && key.includes("id")) return saleId;
         if (key.includes("bike") && key.includes("name")) return bike.name;
         if (key.includes("customer") && key.includes("name")) return customer_name;
@@ -428,38 +443,65 @@ Deno.serve(async (req: Request) => {
         return "";
       });
 
-      // Append Sold row
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-      const appendRes = await fetch(appendUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ values: [rowValues] }),
-      });
+      // Build Documents row from cached headers
+      const docRowValues = buildDocumentsRow(
+        docHeaders, saleId, buyer_type, customer_name, customer_phone, bike.name, formattedDate
+      );
 
-      if (!appendRes.ok) {
-        sheetWarning = `Sheet row not written: ${await appendRes.text()}`;
-      } else {
-        // Append Documents row
-        await writeDocumentsRow(accessToken, sheetId, saleId, buyer_type, customer_name, customer_phone, bike.name, formattedDate);
-
-        // Update Stock tab
-        await updateStockTab(accessToken, sheetId, bike.name, newStockLevel, formattedDate);
-
-        // Update Parts tab stock cells for any extra products sold (best-effort)
-        if (extrasForCommit && extrasForCommit.length > 0) {
-          const extraPartIds = extrasForCommit.map((ex) => ex.part_id);
-          try {
-            const partStockRes = await updatePartStockCells(extraPartIds);
-            if (!partStockRes.ok) {
-              console.warn("[record-sale] Parts tab stock sync warning:", partStockRes.error);
-            }
-          } catch (partStockErr) {
-            console.warn("[record-sale] Parts tab stock sync error:", partStockErr);
-          }
+      // Find Stock tab row for this bike
+      let bikeRowIndex = -1;
+      for (let i = 0; i < stockColA.length; i++) {
+        if (stockColA[i]?.[0]?.trim().toLowerCase() === bike.name.trim().toLowerCase()) {
+          bikeRowIndex = i + 1;
+          break;
         }
-
-        sheetSynced = true;
       }
+
+      // Run Sold append + Documents append + Stock update + Parts update all in parallel
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Sold")}!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const docAppendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+      const writes: Promise<unknown>[] = [
+        fetch(appendUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ values: [rowValues] }),
+        }).then(async (r) => {
+          if (!r.ok) sheetWarning = `Sheet Sold row not written: ${await r.text()}`;
+          else sheetSynced = true;
+        }),
+        docRowValues.length > 0
+          ? fetch(docAppendUrl, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: [docRowValues] }),
+          }).then((r) => r.ok ? null : r.text().then((t) => console.warn("[record-sale] Doc append warning:", t)))
+          : Promise.resolve(),
+      ];
+
+      if (bikeRowIndex !== -1) {
+        const stockUpdateRange = `Stock!C${bikeRowIndex}:D${bikeRowIndex}`;
+        const stockUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(stockUpdateRange)}?valueInputOption=USER_ENTERED`;
+        writes.push(
+          fetch(stockUpdateUrl, {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ range: stockUpdateRange, majorDimension: "ROWS", values: [[newStockLevel, formattedDate]] }),
+          }).then((r) => r.ok ? null : r.text().then((t) => console.warn("[record-sale] Stock update warning:", t)))
+        );
+      }
+
+      if (extrasForCommit.length > 0) {
+        const extraPartIds = extrasForCommit.map((ex) => ex.part_id);
+        writes.push(
+          updatePartStockCells(extraPartIds).then((res) => {
+            if (!res.ok) console.warn("[record-sale] Parts tab stock sync warning:", res.error);
+          }).catch((e) => console.warn("[record-sale] Parts tab stock sync error:", e))
+        );
+      }
+
+      await timer.measure("sheets_write", () => Promise.all(writes));
+
     } catch (sheetErr) {
       sheetWarning = `Sheet sync failed: ${(sheetErr as Error).message}`;
     }
@@ -473,6 +515,9 @@ Deno.serve(async (req: Request) => {
     .update({ sheet_synced: sheetSynced })
     .eq("id", saleLogId);
 
+  timer.log("record-sale");
+  const timingHeader = timer.getHeader();
+
   const response: Record<string, unknown> = {
     status: "committed",
     sale_log_id: saleLogId,
@@ -482,65 +527,23 @@ Deno.serve(async (req: Request) => {
   };
   if (sheetWarning) response.warning = sheetWarning;
 
-  return jsonResponse(response);
+  return jsonResponse(response, 200, { "Server-Timing": timingHeader });
 });
 
-// ── Write Documents row ────────────────────────────────────────────────────────
-async function writeDocumentsRow(
-  accessToken: string,
-  sheetId: string,
+// ── Build Documents row from cached headers (pure, no network calls) ──────────
+function buildDocumentsRow(
+  headers: string[],
   saleId: string,
   buyerType: string,
   customerName: string,
   customerPhone: string,
   bikeName: string,
-  formattedDate: string
-) {
-  const isIndividual = buyerType.toLowerCase() === "individual";
-
-  function isIndividualDocCol(h: string) {
-    return h.includes("citizenship") || h.includes("nid") ||
-      h.includes("passport") ||
-      h.includes("driving") || h.includes("license") ||
-      (h.includes("pan") && !h.includes("vat") && !h.includes("company"));
-  }
-  function isCorporateDocCol(h: string) {
-    return h.includes("registration") || h.includes("company") ||
-      (h.includes("pan") && h.includes("vat")) ||
-      h.includes("board") || h.includes("authorization") || h.includes("signatory");
-  }
-
-  let docRowValues: (string | boolean)[] = [];
-  try {
-    const docHeaderUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!1:1`;
-    const docHeaderRes = await fetch(docHeaderUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (docHeaderRes.ok) {
-      const docHeaderData = await docHeaderRes.json();
-      const headers: string[] = docHeaderData.values?.[0] ?? [];
-      if (headers.length > 0) {
-        docRowValues = headers.map((header) => {
-          const h = header.trim().toLowerCase();
-          if (h.includes("sale") && h.includes("id")) return saleId;
-          if (h.includes("buyer") && h.includes("type")) return buyerType;
-          if (h.includes("customer") && h.includes("name")) return customerName;
-          if (h.includes("customer") && h.includes("phone")) return customerPhone;
-          if (h.includes("bike")) return bikeName;
-          if (h.includes("date")) return formattedDate;
-          if (h.includes("handover")) return false;
-          if (h.includes("payment") && h.includes("receipt")) return false;
-          if (h.includes("insurance")) return false;
-          const indCol = isIndividualDocCol(h);
-          const corpCol = isCorporateDocCol(h);
-          if (indCol && !corpCol) return isIndividual ? false : "Not Required";
-          if (corpCol && !indCol) return isIndividual ? "Not Required" : false;
-          return false;
-        });
-      }
-    }
-  } catch { /* fallthrough to default */ }
-
-  if (docRowValues.length === 0) {
-    docRowValues = [
+  formattedDate: string,
+): (string | boolean)[] {
+  if (headers.length === 0) {
+    // Fallback: use hardcoded column order
+    const isIndividual = buyerType.toLowerCase() === "individual";
+    return [
       saleId, buyerType,
       isIndividual ? false : "Not Required",
       isIndividual ? false : "Not Required",
@@ -553,45 +556,36 @@ async function writeDocumentsRow(
       false, false, false,
     ];
   }
-
-  const docAppendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Documents")}!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-  await fetch(docAppendUrl, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ values: [docRowValues] }),
-  });
-}
-
-// ── Update Stock tab ───────────────────────────────────────────────────────────
-async function updateStockTab(
-  accessToken: string,
-  sheetId: string,
-  bikeName: string,
-  newStockLevel: number,
-  formattedDate: string
-) {
-  const stockGetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent("Stock")}!A:A`;
-  const stockGetRes = await fetch(stockGetUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!stockGetRes.ok) return;
-
-  const stockGetData = await stockGetRes.json();
-  const columnAValues: string[][] = stockGetData.values ?? [];
-
-  let bikeRowIndex = -1;
-  for (let i = 0; i < columnAValues.length; i++) {
-    if (columnAValues[i]?.[0]?.trim().toLowerCase() === bikeName.trim().toLowerCase()) {
-      bikeRowIndex = i + 1;
-      break;
-    }
+  const isIndividual = buyerType.toLowerCase() === "individual";
+  function isIndividualDocCol(h: string) {
+    return h.includes("citizenship") || h.includes("nid") ||
+      h.includes("passport") ||
+      h.includes("driving") || h.includes("license") ||
+      (h.includes("pan") && !h.includes("vat") && !h.includes("company"));
   }
-  if (bikeRowIndex === -1) return;
-
-  const stockUpdateRange = `Stock!C${bikeRowIndex}:D${bikeRowIndex}`;
-  const stockUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(stockUpdateRange)}?valueInputOption=USER_ENTERED`;
-  await fetch(stockUpdateUrl, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ range: stockUpdateRange, majorDimension: "ROWS", values: [[newStockLevel, formattedDate]] }),
+  function isCorporateDocCol(h: string) {
+    return h.includes("registration") || h.includes("company") ||
+      (h.includes("pan") && h.includes("vat")) ||
+      h.includes("board") || h.includes("authorization") || h.includes("signatory");
+  }
+  return headers.map((header) => {
+    const h = header.trim().toLowerCase();
+    if (h.includes("sale") && h.includes("id")) return saleId;
+    if (h.includes("buyer") && h.includes("type")) return buyerType;
+    if (h.includes("customer") && h.includes("name")) return customerName;
+    if (h.includes("customer") && h.includes("phone")) return customerPhone;
+    if (h.includes("bike")) return bikeName;
+    if (h.includes("date")) return formattedDate;
+    if (h.includes("handover")) return false;
+    if (h.includes("payment") && h.includes("receipt")) return false;
+    if (h.includes("insurance")) return false;
+    const indCol = isIndividualDocCol(h);
+    const corpCol = isCorporateDocCol(h);
+    if (indCol && !corpCol) return isIndividual ? false : "Not Required";
+    if (corpCol && !indCol) return isIndividual ? "Not Required" : false;
+    return false;
   });
 }
+
+
 
