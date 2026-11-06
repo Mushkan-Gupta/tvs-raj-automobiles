@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
 import {
-  LogOut, TrendingUp, ShoppingCart, AlertCircle, Check,
-  ChevronDown, Package, Clock, User, Phone, RefreshCw, MessageSquare,
-  Banknote, Building2, CreditCard, FileText, Send
+  TrendingUp, ShoppingCart, AlertCircle, Check, ChevronDown, Package, Clock, User, Phone, RefreshCw, Banknote, Building2, CreditCard, Send
 } from 'lucide-react';
 import { getEffectiveBikePrice, computeSale } from '../lib/pricing';
 import { useDraft } from '../lib/useDraft';
@@ -170,9 +167,8 @@ function InquiriesSection({ inquiries, loading, updateStatus }) {
 }
 
 // ─── Main Component ────────────────────────────────────────────────────────
-export default function EmployeeDashboard() {
+export default function EmployeeDashboard({ view = 'stock' }) {
   const { user } = useAuth();
-  const navigate = useNavigate();
 
   // ── Bikes list ──
   const [bikes, setBikes] = useState([]);
@@ -255,7 +251,7 @@ export default function EmployeeDashboard() {
   // ── Inquiries ──
   const [inquiries, setInquiries] = useState([]);
   const [inquiriesLoading, setInquiriesLoading] = useState(true);
-  const [showInquiries, setShowInquiries] = useState(false);
+  const enquiriesView = view === 'enquiries';
 
   // ── Toast ──
   const [toast, setToast] = useState(null);
@@ -576,76 +572,25 @@ export default function EmployeeDashboard() {
     }
   };
 
-  // ─── Logout ───────────────────────────────────────────────────────────
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-8">
       <Toast toast={toast} />
 
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-[#1f293d]">
-        <div>
-          <h1 className="text-2xl font-black text-white tracking-tight">Employee Dashboard</h1>
-          <p className="text-gray-400 text-sm mt-0.5">
-            Stock logging for TVS Raj Automobiles
-            {user?.email && (
-              <span className="ml-2 text-gray-500">— {user.email}</span>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          <button
-            onClick={() => setShowInquiries(!showInquiries)}
-            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-300 hover:text-white hover:border-gray-500 text-sm font-semibold
-              transition-colors min-h-[44px]"
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>{showInquiries ? 'Back to Stock Log' : 'View Inquiries'}</span>
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold
-              transition-colors min-h-[44px]"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Logout</span>
-          </button>
-        </div>
+      <div className="pb-5 border-b border-[#1f293d]">
+        <h1 className="text-2xl font-black text-white tracking-tight">
+          {enquiriesView ? 'Customer enquiries' : 'Stock management'}
+        </h1>
+        <p className="text-gray-400 text-sm mt-0.5">
+          {enquiriesView ? 'Enquiries from the website contact form' : 'Log stock arrivals and bike sales'}
+          {user?.email && (
+            <span className="ml-2 text-gray-500">— {user.email}</span>
+          )}
+        </p>
       </div>
 
-      {/* ── Navigation Tabs ── */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
-        <Link
-          to="/employee/dashboard"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/40 text-[#0066CC] font-bold shrink-0"
-        >
-          <Package className="w-4 h-4" />
-          <span>Stock Logging</span>
-        </Link>
-        <Link
-          to="/employee/pending-documents"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <FileText className="w-4 h-4" />
-          <span>Pending Documents</span>
-        </Link>
-        <Link
-          to="/employee/pending-payments"
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-        >
-          <CreditCard className="w-4 h-4" />
-          <span>Pending Payments</span>
-        </Link>
-      </div>
-
-      {showInquiries ? (
+      {enquiriesView ? (
         <InquiriesSection 
           inquiries={inquiries} 
           loading={inquiriesLoading} 
