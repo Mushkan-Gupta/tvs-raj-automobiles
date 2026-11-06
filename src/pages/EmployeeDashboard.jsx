@@ -204,7 +204,10 @@ export default function EmployeeDashboard() {
   const [refreshRequests, setRefreshRequests] = useState(0);
 
   // ── Draft Persistence (survives tab switches and page navigations) ──
-  const saleDraftState = useMemo(() => ({
+  // ONE draft for the whole form. (Two separate drafts for "sale" and "arrival" overwrote
+  // each other's restored values when returning to this page.)
+  const draftState = useMemo(() => ({
+    action: form.action,
     bikeId: form.bikeId,
     quantity: form.quantity,
     customerName: form.customerName,
@@ -220,11 +223,11 @@ export default function EmployeeDashboard() {
     extras,
   }), [form, discountType, discountValue, paperworkCharge, modificationCharge, modificationNote, extras]);
 
-  const restoreSaleDraft = useCallback((draft) => {
+  const restoreDraft = useCallback((draft) => {
     if (!draft) return;
     setForm((prev) => ({
       ...prev,
-      action: 'sale',
+      action: draft.action === 'sale' || draft.action === 'arrival' ? draft.action : prev.action,
       bikeId: draft.bikeId ?? prev.bikeId,
       quantity: draft.quantity ?? prev.quantity,
       customerName: draft.customerName ?? prev.customerName,
@@ -241,31 +244,9 @@ export default function EmployeeDashboard() {
     if (Array.isArray(draft.extras)) setExtras(draft.extras);
   }, []);
 
-  const { clearDraft: clearSaleDraft } = useDraft(
-    'employee_sale_form',
-    form.action === 'sale' ? saleDraftState : null,
-    restoreSaleDraft
-  );
-
-  const arrivalDraftState = useMemo(() => ({
-    bikeId: form.bikeId,
-    quantity: form.quantity,
-  }), [form.bikeId, form.quantity]);
-
-  const restoreArrivalDraft = useCallback((draft) => {
-    if (!draft) return;
-    setForm((prev) => ({
-      ...prev,
-      bikeId: draft.bikeId ?? prev.bikeId,
-      quantity: draft.quantity ?? prev.quantity,
-    }));
-  }, []);
-
-  const { clearDraft: clearArrivalDraft } = useDraft(
-    'employee_arrival_form',
-    form.action === 'arrival' ? arrivalDraftState : null,
-    restoreArrivalDraft
-  );
+  const { clearDraft } = useDraft('employee_form', draftState, restoreDraft);
+  const clearSaleDraft = clearDraft;
+  const clearArrivalDraft = clearDraft;
 
   // ── Recent activity ──
   const [logs, setLogs] = useState([]);
