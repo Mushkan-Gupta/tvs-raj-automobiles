@@ -1,13 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
 import AdminNav from '../components/AdminNav';
-import {
-  CreditCard, CheckCircle2, Clock, RefreshCw, AlertCircle, Check,
-  User, Bike, Search, LogOut, Package,
-  FileText, Banknote, Wallet,
-} from 'lucide-react';
+import { CheckCircle2, Clock, RefreshCw, AlertCircle, Check, User, Bike, Search, Banknote, Wallet } from 'lucide-react';
 
 const inputCls =
   'w-full bg-[#0b0f19] border border-[#1f293d] text-white rounded-lg py-2.5 px-3 text-sm ' +
@@ -32,8 +28,7 @@ function Toast({ toast }) {
 }
 
 export default function PendingPayments() {
-  const { user, role } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [payments, setPayments] = useState(() => {
     try {
@@ -203,11 +198,6 @@ export default function PendingPayments() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // Filtered list
   const filteredPayments = payments.filter((p) => {
     const q = search.trim().toLowerCase();
@@ -259,50 +249,11 @@ export default function PendingPayments() {
             <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Navigation Tabs ── */}
-      {role === 'admin' ? (
-        <AdminNav pendingPaymentsCount={payments.length} />
-      ) : (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
-          <Link
-            to="/employee/dashboard"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-          >
-            <Package className="w-4 h-4" />
-            <span>Stock Logging</span>
-          </Link>
-          <Link
-            to="/employee/pending-documents"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-          >
-            <FileText className="w-4 h-4" />
-            <span>Pending Documents</span>
-          </Link>
-          <Link
-            to="/employee/pending-payments"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 font-bold shrink-0"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Pending Payments</span>
-            {payments.length > 0 && (
-              <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-black">
-                {payments.length}
-              </span>
-            )}
-          </Link>
-        </div>
-      )}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
+      <AdminNav pendingPaymentsCount={payments.length} />
 
       {/* ── Metric Summary Pill ── */}
       {payments.length > 0 && (

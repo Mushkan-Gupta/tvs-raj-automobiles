@@ -1,25 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import AdminNav from '../components/AdminNav';
-import {
-  TrendingUp,
-  CreditCard,
-  FileText,
-  AlertCircle,
-  Check,
-  RefreshCw,
-  LogOut,
-  Bike,
-  Building2,
-  User,
-  ExternalLink,
-  ChevronRight,
-  AlertTriangle,
-  ArrowUpRight,
-  Layers,
-  Banknote,
-} from 'lucide-react';
+import { TrendingUp, CreditCard, FileText, AlertCircle, Check, RefreshCw, Bike, Building2, User, ExternalLink, ChevronRight, AlertTriangle, ArrowUpRight, Layers, Banknote } from 'lucide-react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -108,7 +91,6 @@ function DonutTooltip({ active, payload }) {
 }
 
 export default function AdminOverview() {
-  const navigate = useNavigate();
 
   const [overviewData, setOverviewData] = useState(() => {
     try {
@@ -177,11 +159,6 @@ export default function AdminOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // Derived metrics with safe fallbacks
   const totalRevenue = overviewData?.totalRevenue ?? 0;
   const totalUnitsSold = overviewData?.totalUnitsSold ?? 0;
@@ -237,18 +214,10 @@ export default function AdminOverview() {
             <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh Data</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Navigation Tabs ── */}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
       <AdminNav
         pendingDocsCount={pendingHandoverCount}
         pendingPaymentsCount={paymentBreakdown.find((p) => p.status === 'Partial' || p.status === 'Pending')?.count}

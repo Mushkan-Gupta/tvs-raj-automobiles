@@ -1,30 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { supabase } from '../lib/supabaseClient';
 import AdminNav from '../components/AdminNav';
-import {
-  Users,
-  UserPlus,
-  RefreshCw,
-  LogOut,
-  AlertCircle,
-  Check,
-  Search,
-  Eye,
-  EyeOff,
-  Copy,
-  CheckCheck,
-  Trash2,
-  UserX,
-  UserCheck,
-  X,
-  Sparkles,
-  ShieldCheck,
-  Mail,
-  Lock,
-  User,
-  Calendar,
-} from 'lucide-react';
+import { Users, UserPlus, RefreshCw, AlertCircle, Check, Search, Eye, EyeOff, Copy, CheckCheck, Trash2, UserX, UserCheck, X, Sparkles, ShieldCheck, Mail, Lock, User, Calendar } from 'lucide-react';
 
 const inputCls =
   'w-full bg-[#0b0f19] border border-[#1f293d] text-white rounded-xl py-2.5 px-3.5 text-sm ' +
@@ -59,7 +37,6 @@ function generateSecurePassword() {
 }
 
 export default function ManageEmployees() {
-  const navigate = useNavigate();
 
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -294,11 +271,6 @@ export default function ManageEmployees() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // Filtered employees by search
   const filteredEmployees = employees.filter((emp) => {
     const q = search.trim().toLowerCase();
@@ -360,17 +332,10 @@ export default function ManageEmployees() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0066CC]' : ''}`} />
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d] text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors min-h-[44px]"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Navigation Tabs ── */}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
       <AdminNav />
 
       {/* ── Search Bar ── */}

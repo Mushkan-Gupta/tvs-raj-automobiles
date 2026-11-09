@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { NavLink, Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Clock, Package, Wrench, FileText, CreditCard, Receipt,
-  MessageSquare, Users, LogOut, Menu, X, Bike, Globe,
+  MessageSquare, Users, LogOut, Menu, X, Bike, Globe, ChevronUp,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
@@ -60,17 +60,102 @@ function Badge({ value, amber }) {
   if (!value) return null;
   return (
     <span
-      className={`ml-auto min-w-[22px] text-center px-1.5 py-0.5 rounded-full text-[11px] font-bold leading-none ${
-        amber ? 'bg-amber-500 text-black' : 'bg-[#0066CC] text-white'
-      }`}
+      className={`ml-auto min-w-[22px] text-center px-1.5 py-0.5 rounded-full text-[11px] font-bold leading-none ${amber ? 'bg-amber-500 text-black' : 'bg-[#0066CC] text-white'
+        }`}
     >
       {value}
     </span>
   );
 }
 
-function SidebarContent({ sections, badges, onNavigate, user, role, onLogout }) {
+function AccountMenu({ user, role, onNavigate, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
   const initial = (user?.email || '?').charAt(0).toUpperCase();
+
+  // Close on outside click / tap and on Escape
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointer = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('touchstart', onPointer);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('touchstart', onPointer);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const itemClass =
+    'w-full flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4da3ff]';
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative border-t border-[#1f293d] p-3"
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+    >
+      {/* Menu opens upwards from the account button */}
+      <div
+        role="menu"
+        aria-label="Account"
+        aria-hidden={!open}
+        className={`absolute left-3 right-3 bottom-full mb-1 rounded-xl border border-[#1f293d] bg-[#0e1422] p-1.5 shadow-lg origin-bottom transition-[opacity,transform,visibility] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${open ? 'opacity-100 translate-y-0 visible' : 'opacity-0 translate-y-1 invisible pointer-events-none'
+          }`}
+      >
+        <div className="px-3 py-2">
+          <p className="text-xs text-gray-500 capitalize">{role}</p>
+          <p className="text-sm text-white break-all">{user?.email}</p>
+        </div>
+        <div className="h-px bg-[#1f293d] my-1" />
+        <Link
+          to="/"
+          role="menuitem"
+          onClick={() => { setOpen(false); onNavigate?.(); }}
+          className={`${itemClass} text-gray-300 hover:text-white hover:bg-[#151c2c]`}
+        >
+          <Globe className="w-[18px] h-[18px] shrink-0" />
+          <span>View website</span>
+        </Link>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => { setOpen(false); onLogout(); }}
+          className={`${itemClass} text-gray-300 hover:text-red-400 hover:bg-red-500/10`}
+        >
+          <LogOut className="w-[18px] h-[18px] shrink-0" />
+          <span>Log out</span>
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`w-full flex items-center gap-3 px-2 min-h-[52px] rounded-xl text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4da3ff] ${open ? 'bg-[#151c2c]' : 'hover:bg-[#151c2c]'
+          }`}
+      >
+        <span className="w-9 h-9 rounded-full bg-[#0066CC]/20 text-[#4da3ff] flex items-center justify-center text-sm font-semibold shrink-0">
+          {initial}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-white font-medium truncate">{user?.email}</span>
+          <span className="block text-xs text-gray-500 capitalize">{role}</span>
+        </span>
+        <ChevronUp
+          className={`w-4 h-4 text-gray-500 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? '' : 'rotate-180'}`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function SidebarContent({ sections, badges, onNavigate, user, role, onLogout }) {
   return (
     <div className="flex flex-col h-full">
       {/* Brand */}
@@ -89,7 +174,7 @@ function SidebarContent({ sections, badges, onNavigate, user, role, onLogout }) 
         {sections.map((section, i) => (
           <div key={section.title || i}>
             {section.title && (
-              <p className="px-3 mb-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-600">
+              <p className="px-3 mb-1.5 text-xs font-medium text-gray-500">
                 {section.title}
               </p>
             )}
@@ -102,10 +187,9 @@ function SidebarContent({ sections, badges, onNavigate, user, role, onLogout }) 
                       to={item.to}
                       onClick={onNavigate}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 min-h-[44px] rounded-xl text-sm font-medium transition-colors ${
-                          isActive
-                            ? 'bg-[#0066CC]/15 text-[#4da3ff] font-bold'
-                            : 'text-gray-400 hover:text-white hover:bg-[#151c2c]'
+                        `flex items-center gap-3 px-3 min-h-[44px] rounded-xl text-sm font-medium transition-colors ${isActive
+                          ? 'bg-[#0066CC]/15 text-[#4da3ff] font-bold'
+                          : 'text-gray-400 hover:text-white hover:bg-[#151c2c]'
                         }`
                       }
                     >
@@ -121,34 +205,8 @@ function SidebarContent({ sections, badges, onNavigate, user, role, onLogout }) 
         ))}
       </nav>
 
-      {/* Footer: user + website + logout */}
-      <div className="border-t border-[#1f293d] p-3 space-y-1" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-9 h-9 rounded-full bg-[#0066CC]/20 text-[#4da3ff] flex items-center justify-center text-sm font-bold shrink-0">
-            {initial}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm text-white font-semibold truncate">{user?.email}</p>
-            <p className="text-xs text-gray-500 capitalize">{role}</p>
-          </div>
-        </div>
-        <Link
-          to="/"
-          onClick={onNavigate}
-          className="flex items-center gap-3 px-3 min-h-[44px] rounded-xl text-sm text-gray-400 hover:text-white hover:bg-[#151c2c]"
-        >
-          <Globe className="w-[18px] h-[18px]" />
-          <span>View website</span>
-        </Link>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 min-h-[44px] rounded-xl text-sm text-gray-400 hover:text-red-400 hover:bg-red-500/10"
-        >
-          <LogOut className="w-[18px] h-[18px]" />
-          <span>Log out</span>
-        </button>
-      </div>
+      {/* Footer: one account button that opens a small menu */}
+      <AccountMenu user={user} role={role} onNavigate={onNavigate} onLogout={onLogout} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Pencil, Trash2, X, Check, AlertCircle, ChevronDown } from 'lucide-react';
+
+import { Plus, Pencil, Trash2, X, Check, AlertCircle, ChevronDown } from 'lucide-react';
 import AdminNav from '../components/AdminNav';
 import { formatNPR } from '../lib/formatters';
 
@@ -255,7 +255,6 @@ function BikeFormModal({ initialData, onSave, onClose }) {
 
 // ─── Main Component ───
 export default function AdminDashboard() {
-  const navigate = useNavigate();
 
   const [bikes, setBikes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -331,11 +330,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // ─── Render ───
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -368,17 +362,10 @@ export default function AdminDashboard() {
             <Plus className="w-4 h-4" />
             <span>Add New Bike</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d] text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors min-h-[44px]"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Navigation Tabs ── */}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
       <AdminNav />
 
       {/* ── Bikes Table ── */}

@@ -1,23 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useNavigate } from 'react-router-dom';
-import {
-  LogOut,
-  Plus,
-  Pencil,
-  Trash2,
-  Search,
-  Filter,
-  Check,
-  AlertCircle,
-  Package,
-  Eye,
-  EyeOff,
-  Image as ImageIcon,
-  FileSpreadsheet,
-  RefreshCw,
-  AlertTriangle,
-} from 'lucide-react';
+
+import { Plus, Pencil, Trash2, Search, Filter, Check, AlertCircle, Package, Eye, EyeOff, Image as ImageIcon, FileSpreadsheet, RefreshCw, AlertTriangle } from 'lucide-react';
 import AdminNav from '../components/AdminNav';
 import { formatNPR } from '../lib/formatters';
 import { PinnedBadge, InactiveBadge, StockBadge } from '../components/parts/PartBadges';
@@ -25,7 +9,6 @@ import PartFormModal from '../components/parts/PartFormModal';
 import PartDeleteModal from '../components/parts/PartDeleteModal';
 
 export default function AdminParts() {
-  const navigate = useNavigate();
 
   // Data state
   const [parts, setParts] = useState([]);
@@ -283,11 +266,6 @@ export default function AdminParts() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       {/* ── Toast notification ── */}
@@ -333,17 +311,10 @@ export default function AdminParts() {
             <Plus className="w-4 h-4" />
             <span>Add New Part</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl border border-[#1f293d] text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors min-h-[44px]"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Admin Navigation Tabs ── */}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
       <AdminNav />
 
       {/* ── Sync Bar & Sheet Advisory ── */}

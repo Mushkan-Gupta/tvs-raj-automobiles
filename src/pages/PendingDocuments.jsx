@@ -1,13 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
 import AdminNav from '../components/AdminNav';
-import {
-  FileText, CheckCircle2, Clock, RefreshCw, AlertCircle, Check,
-  User, Bike, ShieldCheck, Search,
-  Save, LogOut, Package, CreditCard, Sparkles,
-} from 'lucide-react';
+import { FileText, CheckCircle2, Clock, RefreshCw, AlertCircle, Check, User, Bike, ShieldCheck, Search, Save, Sparkles } from 'lucide-react';
 
 // Shared styling
 const inputCls =
@@ -76,8 +72,7 @@ function isDocRelevantForBuyer(docName, buyerType) {
 }
 
 export default function PendingDocuments() {
-  const { user, role } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [documents, setDocuments] = useState(() => {
     try {
@@ -255,11 +250,6 @@ export default function PendingDocuments() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/admin-login');
-  };
-
   // Filtered list
   const filteredDocs = documents.filter((doc) => {
     const q = search.trim().toLowerCase();
@@ -313,50 +303,11 @@ export default function PendingDocuments() {
             <RefreshCw className={`w-4 h-4 ${loading || isUpdating ? 'animate-spin text-[#0066CC]' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-[#1f293d]
-              text-gray-400 hover:text-red-400 hover:border-red-500/40 text-sm font-semibold transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Navigation Tabs ── */}
-      {role === 'admin' ? (
-        <AdminNav pendingDocsCount={documents.length} />
-      ) : (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#1f293d]/80 text-sm font-medium">
-          <Link
-            to="/employee/dashboard"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-          >
-            <Package className="w-4 h-4" />
-            <span>Stock Logging</span>
-          </Link>
-          <Link
-            to="/employee/pending-documents"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/40 text-[#0066CC] font-bold shrink-0"
-          >
-            <FileText className="w-4 h-4" />
-            <span>Pending Documents</span>
-            {documents.length > 0 && (
-              <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-[#0066CC] text-white">
-                {documents.length}
-              </span>
-            )}
-          </Link>
-          <Link
-            to="/employee/pending-payments"
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#151c2c] transition-colors shrink-0"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Pending Payments</span>
-          </Link>
-        </div>
-      )}
+      {/* ── Publishes pending counts to the sidebar badges ── */}
+      <AdminNav pendingDocsCount={documents.length} />
 
       {/* ── Search & Filter Controls ── */}
       <div className="flex flex-col sm:flex-row gap-3">
