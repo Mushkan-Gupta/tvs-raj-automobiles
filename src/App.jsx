@@ -6,6 +6,7 @@ import Footer from './components/Footer';
 import Home from './pages/Home';
 import BikeListing from './pages/BikeListing';
 import BikeDetail from './pages/BikeDetail';
+import Parts from './pages/Parts';
 import Offers from './pages/Offers';
 import Finance from './pages/Finance';
 import About from './pages/About';
@@ -39,6 +40,7 @@ function AppShell() {
           <Route path="/" element={<Home />} />
           <Route path="/bikes" element={<BikeListing />} />
           <Route path="/bikes/:id" element={<BikeDetail />} />
+          <Route path="/parts" element={<Parts />} />
           <Route path="/offers" element={<Offers />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/about" element={<About />} />
