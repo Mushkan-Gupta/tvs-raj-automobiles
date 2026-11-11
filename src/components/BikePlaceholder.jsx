@@ -11,7 +11,7 @@ export default function BikePlaceholder({ color = '#0066CC', name = 'TVS Motorcy
 
   return (
     <div
-      className="w-full h-full min-h-[280px] sm:min-h-[360px] lg:min-h-[420px] bg-[#111827] border border-[#1f293d] rounded-2xl flex flex-col items-center justify-between p-6 relative overflow-hidden select-none"
+      className="w-full h-full aspect-[16/9] bg-[#111827] flex flex-col items-center justify-between p-4 sm:p-6 relative overflow-hidden select-none"
       role="img"
       aria-label={`${name} in ${accentColor}`}
     >

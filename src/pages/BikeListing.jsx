@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Slider from 'rc-slider';
@@ -159,7 +159,10 @@ const FilterSidebar = React.memo(function FilterSidebar({
 // ─── Bike Card (extracted to avoid re-render of all cards on slider drag) ───
 const BikeCard = React.memo(function BikeCard({ bike }) {
   return (
-    <div className="glass-card rounded-2xl overflow-hidden flex flex-col justify-between group">
+    <Link
+      to={`/bikes/${bike.id}`}
+      className="glass-card rounded-2xl overflow-hidden flex flex-col justify-between group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0f19] text-left"
+    >
       <div>
         <div className="relative h-48 sm:h-52 overflow-hidden bg-[#0d1527]">
           <img src={bike.image} alt={bike.name} loading="lazy"
@@ -199,13 +202,14 @@ const BikeCard = React.memo(function BikeCard({ bike }) {
           <span className="text-[10px] text-gray-400 block">Showroom Price</span>
           <span className="text-base font-black text-white">{bike.price}</span>
         </div>
-        <Link to={`/bikes/${bike.id}`}
-          className="px-4 py-2.5 rounded-xl btn-primary text-xs font-bold flex items-center space-x-1 min-h-[40px]">
-          <span>Inquire</span>
+        <span
+          className="px-4 py-2.5 rounded-xl btn-primary text-xs font-bold flex items-center space-x-1 min-h-[40px] pointer-events-none"
+        >
+          <span>View details</span>
           <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
+        </span>
       </div>
-    </div>
+    </Link>
   );
 });
 
