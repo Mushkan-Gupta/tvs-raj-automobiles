@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -198,6 +198,74 @@ export default function BikeDetail() {
   // Panel collapsed state: desktop open by default, mobile collapsed by default
   const [isDesktopPanelOpen, setIsDesktopPanelOpen] = useState(true);
   const [isMobilePartsOpen, setIsMobilePartsOpen] = useState(false);
+
+  // ── Resizable panel width (desktop only) ──────────────────────────────────
+  const PANEL_MIN = 320;
+  const PANEL_MAX = 560;
+  const PANEL_DEFAULT = 380;
+
+  const readStoredWidth = () => {
+    try {
+      const v = localStorage.getItem('partsPanelWidth');
+      if (v !== null) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n >= PANEL_MIN && n <= PANEL_MAX) return n;
+      }
+    } catch { /* storage blocked */ }
+    return PANEL_DEFAULT;
+  };
+
+  const [panelWidth, setPanelWidth] = useState(readStoredWidth);
+
+  const saveWidth = useCallback((w) => {
+    try { localStorage.setItem('partsPanelWidth', String(w)); } catch { /* ignore */ }
+  }, []);
+
+  const dragState = useRef(null); // { startX, startW }
+
+  const onPointerDown = useCallback((e) => {
+    if (e.button !== 0) return; // primary button / pen only
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragState.current = { startX: e.clientX, startW: panelWidth };
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  }, [panelWidth]);
+
+  const onPointerMove = useCallback((e) => {
+    if (!dragState.current) return;
+    // Handle is on the LEFT edge: dragging left → expand, right → shrink
+    const dx = dragState.current.startX - e.clientX;
+    const next = Math.min(PANEL_MAX, Math.max(PANEL_MIN, dragState.current.startW + dx));
+    setPanelWidth(next);
+  }, []);
+
+  const onPointerUp = useCallback((e) => {
+    if (!dragState.current) return;
+    const dx = dragState.current.startX - e.clientX;
+    const next = Math.min(PANEL_MAX, Math.max(PANEL_MIN, dragState.current.startW + dx));
+    dragState.current = null;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    saveWidth(next);
+  }, [saveWidth]);
+
+  const onHandleDoubleClick = useCallback(() => {
+    setPanelWidth(PANEL_DEFAULT);
+    saveWidth(PANEL_DEFAULT);
+  }, [saveWidth]);
+
+  const onHandleKeyDown = useCallback((e) => {
+    let next = panelWidth;
+    if (e.key === 'ArrowLeft') next = Math.min(PANEL_MAX, panelWidth + 16);
+    else if (e.key === 'ArrowRight') next = Math.max(PANEL_MIN, panelWidth - 16);
+    else if (e.key === 'Home') next = PANEL_MIN;
+    else if (e.key === 'End') next = PANEL_MAX;
+    else return;
+    e.preventDefault();
+    setPanelWidth(next);
+    saveWidth(next);
+  }, [panelWidth, saveWidth]);
 
   // Fetch bike and related data
   const fetchData = useCallback(async () => {
@@ -635,16 +703,37 @@ export default function BikeDetail() {
       <aside
         id="parts-panel"
         aria-label="Parts for this bike"
-        className={`hidden lg:flex flex-col sticky top-20 h-[calc(100vh-5rem)] border-l border-[#1f293d] bg-[#101626] overscroll-contain transition-none ${
-          isDesktopPanelOpen
-            ? 'w-[380px] xl:w-[420px] shrink-0'
-            : 'w-14 shrink-0'
+        className={`hidden lg:flex flex-col sticky top-20 h-[calc(100vh-5rem)] border-l border-[#1f293d] bg-[#101626] overscroll-contain transition-none shrink-0 ${
+          isDesktopPanelOpen ? '' : 'w-14'
         }`}
+        style={isDesktopPanelOpen ? { width: `${panelWidth}px` } : undefined}
       >
         {isDesktopPanelOpen ? (
-          <div className="flex flex-col h-full overflow-hidden">
+          <div className="relative flex flex-col h-full overflow-hidden">
+            {/* Drag Handle — left edge */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize parts panel"
+              aria-valuemin={PANEL_MIN}
+              aria-valuemax={PANEL_MAX}
+              aria-valuenow={panelWidth}
+              tabIndex={0}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              onDoubleClick={onHandleDoubleClick}
+              onKeyDown={onHandleKeyDown}
+              className="absolute left-0 top-0 h-full w-3 cursor-col-resize z-10 flex items-center justify-center group select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] focus-visible:ring-inset"
+              style={{ touchAction: 'none' }}
+            >
+              {/* Thin visible line */}
+              <div className="w-px h-full bg-[#1f293d] group-hover:bg-[#0066CC]/60 transition-colors duration-150" />
+            </div>
+
             {/* Panel Header */}
-            <div className="p-4 border-b border-[#1f293d] bg-[#101626] flex items-center justify-between shrink-0">
+            <div className="pl-3 pr-4 py-4 border-b border-[#1f293d] bg-[#101626] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <h2 className="text-base font-bold text-white truncate">
                   Parts for this bike
