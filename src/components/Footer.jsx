@@ -2,8 +2,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Bike, MapPin, Phone, Clock, Lock } from 'lucide-react';
 import { showroomInfo } from '../data/bikes';
+import { useAuth } from '../lib/AuthContext';
 
 export default function Footer() {
+  const { user, role } = useAuth();
+  const isCustomer = !!user && role === null;
   const year = new Date().toLocaleDateString('en-US', { year: 'numeric', timeZone: 'Asia/Kathmandu' });
 
   return (
@@ -72,13 +75,15 @@ export default function Footer() {
         {/* Row 2: copyright + Staff Login */}
         <div className="border-t border-[#1f293d] pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500">
           <p>© {year} TVS Raj Automobiles — Lahan, Siraha. All rights reserved.</p>
-          <Link
-            to="/admin-login"
-            className="inline-flex items-center gap-1.5 hover:text-[#0066CC] transition-colors duration-150 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] rounded min-h-[44px] sm:min-h-0 px-1"
-          >
-            <Lock className="w-3 h-3" />
-            <span>Staff Login</span>
-          </Link>
+          {!isCustomer && (
+            <Link
+              to="/admin-login"
+              className="inline-flex items-center gap-1.5 hover:text-[#0066CC] transition-colors duration-150 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] rounded min-h-[44px] sm:min-h-0 px-1"
+            >
+              <Lock className="w-3 h-3" />
+              <span>Staff Login</span>
+            </Link>
+          )}
         </div>
 
       </div>

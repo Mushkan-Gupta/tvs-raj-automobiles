@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Menu, X, Bike, Phone, MessageSquare, Lock } from 'lucide-react';
+import { Menu, X, Bike, Phone, MessageSquare, Lock, User } from 'lucide-react';
+import { useAuth } from '../lib/AuthContext';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
+  const { user, role } = useAuth();
+
+  const isStaff = !!user && (role === 'admin' || role === 'employee');
+  const isCustomer = !!user && role === null;
+  const accountLink = user ? '/account' : '/login';
+  const accountTitle = user ? 'My Account' : 'Sign in';
 
   const navItems = [
     { name: 'Home', path: '/' },
@@ -65,18 +72,44 @@ export default function Navbar() {
               <span>WhatsApp</span>
             </a>
 
-            <Link
-              to="/admin-login"
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] border border-[#1f293d]/70 hover:border-[#0066CC]/40 transition-all"
-              title="Staff & Admin Portal"
-            >
-              <Lock className="w-3.5 h-3.5 text-gray-400" />
-              <span>Staff Login</span>
-            </Link>
+            {/* Person icon (customers & signed-out users) */}
+            {!isStaff && (
+              <Link
+                to={accountLink}
+                className="flex items-center justify-center min-w-[40px] min-h-[40px] p-2 rounded-lg text-gray-300 hover:text-white hover:bg-[#151c2c] border border-[#1f293d] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                aria-label={accountTitle}
+                title={accountTitle}
+              >
+                <User className="w-5 h-5" />
+              </Link>
+            )}
+
+            {/* Staff portal / login (never shown to a customer) */}
+            {!isCustomer && (
+              <Link
+                to="/admin-login"
+                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] border border-[#1f293d]/70 hover:border-[#0066CC]/40 transition-all"
+                title="Staff & Admin Portal"
+              >
+                <Lock className="w-3.5 h-3.5 text-gray-400" />
+                <span>Staff Login</span>
+              </Link>
+            )}
           </div>
 
-          {/* Mobile Menu Toggle Button */}
-          <div className="md:hidden">
+          {/* Mobile Right Actions: person icon + menu toggle */}
+          <div className="flex items-center space-x-2 md:hidden">
+            {!isStaff && (
+              <Link
+                to={accountLink}
+                className="p-2.5 rounded-lg bg-[#151c2c] text-gray-300 hover:text-white focus:outline-none border border-[#1f293d] min-w-[44px] min-h-[44px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                aria-label={accountTitle}
+                title={accountTitle}
+              >
+                <User className="w-5 h-5" />
+              </Link>
+            )}
+
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="p-2.5 rounded-lg bg-[#151c2c] text-gray-300 hover:text-white focus:outline-none border border-[#1f293d] min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -124,14 +157,29 @@ export default function Navbar() {
               <MessageSquare className="w-4 h-4" />
               <span>Chat on WhatsApp (+977 9819789215)</span>
             </a>
-            <Link
-              to="/admin-login"
-              onClick={() => setIsOpen(false)}
-              className="flex items-center justify-center space-x-1.5 py-2.5 text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] rounded-lg border border-[#1f293d] transition-colors"
-            >
-              <Lock className="w-3.5 h-3.5 text-gray-400" />
-              <span>Staff Login</span>
-            </Link>
+
+            {/* Same entry in the mobile menu */}
+            {!isStaff && (
+              <Link
+                to={accountLink}
+                onClick={() => setIsOpen(false)}
+                className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-[#151c2c] text-white text-sm font-medium min-h-[44px] hover:bg-[#1f293d] transition-colors"
+              >
+                <User className="w-4 h-4 text-[#0066CC]" />
+                <span>{accountTitle}</span>
+              </Link>
+            )}
+
+            {!isCustomer && (
+              <Link
+                to="/admin-login"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center justify-center space-x-1.5 py-2.5 text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-[#151c2c] rounded-lg border border-[#1f293d] transition-colors min-h-[44px]"
+              >
+                <Lock className="w-3.5 h-3.5 text-gray-400" />
+                <span>Staff Login</span>
+              </Link>
+            )}
           </div>
         </div>
       )}

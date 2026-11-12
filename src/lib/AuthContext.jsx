@@ -80,7 +80,7 @@ export function AuthProvider({ children }) {
           .from('user_roles')
           .select('role')
           .eq('id', sessionUser.id)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
 

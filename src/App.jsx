@@ -11,6 +11,8 @@ import Offers from './pages/Offers';
 import Finance from './pages/Finance';
 import About from './pages/About';
 import Contact from './pages/Contact';
+import Login from './pages/Login';
+import Account from './pages/Account';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminOverview from './pages/AdminOverview';
@@ -45,6 +47,8 @@ function AppShell() {
           <Route path="/finance" element={<Finance />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/account" element={<Account />} />
           <Route path="/admin-login" element={<AdminLogin />} />
 
           {/* All staff pages share one sidebar layout */}
