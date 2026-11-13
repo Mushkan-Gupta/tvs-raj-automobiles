@@ -25,6 +25,7 @@ import PendingPayments from './pages/PendingPayments';
 import SalesHistory from './pages/SalesHistory';
 import StaffLayout from './components/StaffLayout';
 import { AuthProvider } from './lib/AuthContext';
+import { CartProvider } from './lib/CartContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { MessageSquare } from 'lucide-react';
 
@@ -95,7 +96,9 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <CartProvider>
+        <AppShell />
+      </CartProvider>
     </AuthProvider>
   );
 }
