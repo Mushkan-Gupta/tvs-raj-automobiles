@@ -13,6 +13,9 @@ import About from './pages/About';
 import Contact from './pages/Contact';
 import Login from './pages/Login';
 import Account from './pages/Account';
+import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
+import CartDrawer from './components/CartDrawer';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminOverview from './pages/AdminOverview';
@@ -44,6 +47,8 @@ function AppShell() {
           <Route path="/bikes" element={<BikeListing />} />
           <Route path="/bikes/:id" element={<BikeDetail />} />
           <Route path="/parts" element={<Parts />} />
+          <Route path="/cart" element={<Cart />} />
+          <Route path="/checkout" element={<Checkout />} />
           <Route path="/offers" element={<Offers />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/about" element={<About />} />
@@ -75,6 +80,7 @@ function AppShell() {
 
       {!isStaffArea && (
         <>
+          <CartDrawer />
           {/* Sticky Floating Mobile/Desktop WhatsApp Quick Contact Button */}
           <a
             href="https://wa.me/9779819789215"

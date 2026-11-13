@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Menu, X, Bike, Phone, MessageSquare, Lock, User } from 'lucide-react';
+import { Menu, X, Bike, Phone, MessageSquare, Lock, User, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
+import { useCart } from '../lib/CartContext';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { user, role } = useAuth();
+  const { count, openDrawer } = useCart();
 
   const isStaff = !!user && (role === 'admin' || role === 'employee');
   const isCustomer = !!user && role === null;
@@ -72,6 +74,24 @@ export default function Navbar() {
               <span>WhatsApp</span>
             </a>
 
+            {/* Cart Button (hidden for staff) */}
+            {!isStaff && (
+              <button
+                type="button"
+                onClick={openDrawer}
+                className="relative flex items-center justify-center min-w-[40px] min-h-[40px] p-2 rounded-lg text-gray-300 hover:text-white hover:bg-[#151c2c] border border-[#1f293d] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                aria-label={`Cart, ${count} item${count === 1 ? '' : 's'}`}
+                title={`Cart, ${count} item${count === 1 ? '' : 's'}`}
+              >
+                <ShoppingCart className="w-5 h-5" />
+                {count > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-[#0066CC] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-[#0b0f19] select-none">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Person icon (customers & signed-out users) */}
             {!isStaff && (
               <Link
@@ -97,8 +117,25 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Mobile Right Actions: person icon + menu toggle */}
+          {/* Mobile Right Actions: cart + person icon + menu toggle */}
           <div className="flex items-center space-x-2 md:hidden">
+            {!isStaff && (
+              <button
+                type="button"
+                onClick={openDrawer}
+                className="relative p-2.5 rounded-lg bg-[#151c2c] text-gray-300 hover:text-white focus:outline-none border border-[#1f293d] min-w-[44px] min-h-[44px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                aria-label={`Cart, ${count} item${count === 1 ? '' : 's'}`}
+                title={`Cart, ${count} item${count === 1 ? '' : 's'}`}
+              >
+                <ShoppingCart className="w-5 h-5" />
+                {count > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-[#0066CC] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-[#0b0f19] select-none">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </button>
+            )}
+
             {!isStaff && (
               <Link
                 to={accountLink}
@@ -157,6 +194,22 @@ export default function Navbar() {
               <MessageSquare className="w-4 h-4" />
               <span>Chat on WhatsApp (+977 9819789215)</span>
             </a>
+
+            {/* Cart entry in the mobile menu */}
+            {!isStaff && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  openDrawer();
+                }}
+                className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-[#151c2c] text-white text-sm font-medium min-h-[44px] hover:bg-[#1f293d] transition-colors"
+                aria-label={`Cart, ${count} item${count === 1 ? '' : 's'}`}
+              >
+                <ShoppingCart className="w-4 h-4 text-[#0066CC]" />
+                <span>Cart ({count > 99 ? '99+' : count})</span>
+              </button>
+            )}
 
             {/* Same entry in the mobile menu */}
             {!isStaff && (
