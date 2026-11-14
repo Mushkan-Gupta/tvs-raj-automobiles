@@ -51,3 +51,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/update-employee-status/deno.json"
 entrypoint = "./functions/update-employee-status/index.ts"
+
+[functions.create-order]
+enabled = true
+verify_jwt = false
+import_map = "./functions/create-order/deno.json"
+entrypoint = "./functions/create-order/index.ts"

@@ -76,6 +76,32 @@ export async function requireRole(
   return { userId: data.user.id, email: data.user.email, role };
 }
 
+export interface UserAuthResult {
+  userId: string;
+  email: string | undefined;
+}
+
+// Any signed-in user (customer or staff). Role is NOT checked.
+export async function requireUser(req: Request): Promise<UserAuthResult | Response> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !anonKey) return deny("Server configuration error.", 500);
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return deny("Unauthorized: missing Authorization header.", 401);
+  }
+  const token = authHeader.replace("Bearer ", "").trim();
+  const supabaseForAuth = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data, error } = await supabaseForAuth.auth.getUser();
+  if (error || !data?.user) {
+    return deny("Unauthorized: invalid or expired session.", 401);
+  }
+  return { userId: data.user.id, email: data.user.email };
+}
+
 export function sheetSafe(value: unknown): string {
   const s = String(value ?? "").trim();
   return /^[=+\-@]/.test(s) ? `'${s}` : s;
