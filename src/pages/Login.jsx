@@ -57,9 +57,18 @@ export default function Login() {
   const [searchParams] = useSearchParams();
 
   // ── State ──
-  const [tab, setTab] = useState('signin'); // 'signin' | 'signup'
+  const [tab, setTab] = useState(() => (searchParams.get('tab') === 'signup' ? 'signup' : 'signin')); // 'signin' | 'signup'
   const [view, setView] = useState('password');
   // 'password' | 'otp-email' | 'otp-code' | 'forgot' | 'forgot-sent' | 'signup-done'
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'signup') {
+      setTab('signup');
+    } else if (tabParam === 'signin') {
+      setTab('signin');
+    }
+  }, [searchParams]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
