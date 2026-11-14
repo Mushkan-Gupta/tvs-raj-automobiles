@@ -15,6 +15,8 @@ import Login from './pages/Login';
 import Account from './pages/Account';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
+import Orders from './pages/Orders';
+import OrderDetail from './pages/OrderDetail';
 import CartDrawer from './components/CartDrawer';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
@@ -49,6 +51,8 @@ function AppShell() {
           <Route path="/parts" element={<Parts />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/orders/:id" element={<OrderDetail />} />
           <Route path="/offers" element={<Offers />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/about" element={<About />} />

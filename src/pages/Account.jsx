@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
 import {
@@ -11,6 +11,8 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Package,
+  ChevronRight,
 } from 'lucide-react';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -204,6 +206,29 @@ export default function Account() {
           Log out
         </button>
       </div>
+
+      {/* ─── My Orders Link ─── */}
+      <Link
+        to="/orders"
+        className="block p-4 rounded-2xl bg-[#151c2c] border border-[#1f293d] hover:border-[#0066CC]/50 transition-all duration-150 group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#0066CC]/15 border border-[#0066CC]/30 flex items-center justify-center text-[#4da3ff]">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white group-hover:text-[#4da3ff] transition-colors">
+                My Orders
+              </h2>
+              <p className="text-xs text-gray-400">
+                View order status and history for parts & accessories
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-white group-hover:translate-x-0.5 transition-transform" />
+        </div>
+      </Link>
 
       {/* ─── Password reset section (shown after clicking password reset link) ─── */}
       {showPasswordReset && (
