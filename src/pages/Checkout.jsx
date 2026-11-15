@@ -22,7 +22,7 @@ export default function Checkout() {
   const { user, loading: authLoading } = useAuth();
   const { profile } = useCustomer();
   const { items, clear } = useCart();
-  const { lines, subtotal, loading: linesLoading, hasIssues, fixCart } = useCartLines();
+  const { lines, subtotal, loading: linesLoading, error: linesError, hasIssues, fixCart, retry, ready } = useCartLines();
   const navigate = useNavigate();
 
   // ── Form State ──
@@ -110,6 +110,15 @@ export default function Checkout() {
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     setServerError(null);
+
+    // Guard: cart details must be loaded
+    if (!ready) {
+      setServerError({
+        type: 'load',
+        message: 'We could not load your cart details yet. Please wait a moment and try again.',
+      });
+      return;
+    }
 
     // Guard: issues must be resolved first
     if (hasIssues) {
@@ -267,7 +276,7 @@ export default function Checkout() {
   };
 
   // ── Loading Skeleton ──
-  if (authLoading || (items.length > 0 && linesLoading && lines.length === 0)) {
+  if (authLoading || (items.length > 0 && !ready && !linesError)) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="space-y-6 animate-pulse">
@@ -332,7 +341,7 @@ export default function Checkout() {
   }
 
   // ── 2) Cart empty or no available lines: redirect to /cart ──
-  if (!linesLoading && (items.length === 0 || lines.length === 0 || !hasAvailableLines)) {
+  if (ready && !linesLoading && (items.length === 0 || lines.length === 0 || !hasAvailableLines)) {
     return <Navigate to="/cart" replace />;
   }
 
@@ -357,6 +366,23 @@ export default function Checkout() {
           <span>Return to cart</span>
         </Link>
       </div>
+
+      {/* Cart details could not be loaded (not a stock problem) */}
+      {linesError && (
+        <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-red-300 text-sm">
+            <AlertCircle className="w-5 h-5 shrink-0 text-red-400" />
+            <span>{linesError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-[40px] px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-semibold transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {/* ── 3) Stock Issues Notice with Fix Cart Button ── */}
       {hasIssues && lines.length > 0 && (
@@ -765,7 +791,7 @@ export default function Checkout() {
               <div className="space-y-3 pt-2">
                 <button
                   type="submit"
-                  disabled={submitting || hasIssues || !hasAvailableLines}
+                  disabled={submitting || !ready || hasIssues || !hasAvailableLines}
                   className="w-full min-h-[48px] px-6 py-3 rounded-xl bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-[#111827] disabled:text-gray-600 disabled:border disabled:border-[#1f293d] disabled:cursor-not-allowed text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-[#0066CC]/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
                 >
                   {submitting ? (

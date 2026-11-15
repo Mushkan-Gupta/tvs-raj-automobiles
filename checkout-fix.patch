@@ -1,0 +1,511 @@
+diff --git a/src/lib/AuthContext.jsx b/src/lib/AuthContext.jsx
+index 07b410b..bb292ac 100644
+--- a/src/lib/AuthContext.jsx
++++ b/src/lib/AuthContext.jsx
+@@ -94,6 +94,22 @@ export function AuthProvider({ children }) {
+         }
+       } catch (error) {
+         console.error('[AuthContext] Error fetching user role:', error);
++        // A rejected token (401) means the saved login is broken: clear it locally
++        // so the visitor is treated as signed out instead of failing every request.
++        if (error?.status === 401 || error?.code === 'PGRST301' || /jwt/i.test(String(error?.message || ''))) {
++          try {
++            await supabase.auth.signOut({ scope: 'local' });
++          } catch {
++            // ignore
++          }
++          setCachedRole(sessionUser.id, null);
++          if (mounted) {
++            setUser(null);
++            setRole(null);
++            setLoading(false);
++          }
++          return;
++        }
+         if (mounted) {
+           setUser(sessionUser);
+           // If we had a cached role, keep it; otherwise set null
+diff --git a/src/lib/useCartLines.js b/src/lib/useCartLines.js
+index 3b29597..5b8534c 100644
+--- a/src/lib/useCartLines.js
++++ b/src/lib/useCartLines.js
+@@ -1,198 +1,224 @@
+-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
++import { useState, useEffect, useMemo, useCallback } from 'react';
+ import { supabase } from './supabaseClient';
+ import { useCart } from './CartContext';
+ 
+ /**
+- * Hook to resolve raw cart items ({ partId, qty }) into rich displayable lines.
+- * Fetches parts data directly from Supabase (NEVER reading part_costs or cost_price).
++ * Turns raw cart items ({ partId, qty }) into displayable lines.
++ * Pure function, no network. `ready` is true only after the parts were
++ * loaded successfully. While not ready every line is "not_loaded" and is
++ * NOT treated as a stock problem (so a failed load can never look like
++ * "out of stock", and "Fix cart" can never delete items because of it).
+  *
+- * Rules:
+- *  - Missing part or active = false -> available = false, "No longer available", excluded from subtotal
+- *  - stock_qty = 0 -> available = false, "Out of stock", excluded from subtotal
+- *  - qty > stock_qty -> clamp displayed qty to stock_qty, show "Only N available"
+- *  - Stored qty is NEVER modified during render.
+- *  - Debounced refetching when items change.
++ * Rules when ready:
++ *  - Missing part or active = false -> "No longer available", excluded from subtotal
++ *  - stock_qty = 0 -> "Out of stock", excluded from subtotal
++ *  - qty > stock_qty -> displayed qty clamped, "Only N available"
++ *  - Stored qty is never modified here.
++ */
++export function buildCartLines(items, partsById, ready) {
++  const lines = items.map((item) => {
++    const part = partsById.get(item.partId);
++
++    if (!ready) {
++      return {
++        partId: item.partId,
++        part: part || { id: item.partId, name: 'Loading item…', category: '', price: 0 },
++        qty: item.qty,
++        displayedQty: item.qty,
++        available: false,
++        isClamped: false,
++        status: 'not_loaded',
++        statusText: null,
++        lineTotal: 0,
++        stockQty: 0,
++      };
++    }
++
++    if (!part || part.active === false) {
++      return {
++        partId: item.partId,
++        part: part || { id: item.partId, name: 'Part unavailable', category: '', price: 0 },
++        qty: item.qty,
++        displayedQty: item.qty,
++        available: false,
++        isClamped: false,
++        status: 'no_longer_available',
++        statusText: 'No longer available',
++        lineTotal: 0,
++        stockQty: 0,
++      };
++    }
++
++    const stockQty =
++      typeof part.stock_qty === 'number' ? Math.max(0, Math.floor(part.stock_qty)) : 0;
++    const unitPrice = typeof part.price === 'number' ? part.price : Number(part.price) || 0;
++
++    if (stockQty <= 0) {
++      return {
++        partId: item.partId,
++        part,
++        qty: item.qty,
++        displayedQty: item.qty,
++        available: false,
++        isClamped: false,
++        status: 'out_of_stock',
++        statusText: 'Out of stock',
++        lineTotal: 0,
++        stockQty: 0,
++      };
++    }
++
++    if (item.qty > stockQty) {
++      return {
++        partId: item.partId,
++        part,
++        qty: item.qty,
++        displayedQty: stockQty,
++        available: true,
++        isClamped: true,
++        status: 'clamped',
++        statusText: `Only ${stockQty} available`,
++        lineTotal: unitPrice * stockQty,
++        stockQty,
++      };
++    }
++
++    return {
++      partId: item.partId,
++      part,
++      qty: item.qty,
++      displayedQty: item.qty,
++      available: true,
++      isClamped: false,
++      status: 'ok',
++      statusText: null,
++      lineTotal: unitPrice * item.qty,
++      stockQty,
++    };
++  });
++
++  const subtotal = lines.reduce((sum, l) => (l.available ? sum + l.lineTotal : sum), 0);
++  const hasIssues = ready && lines.some((l) => !l.available || l.isClamped);
++
++  return { lines, subtotal, hasIssues };
++}
++
++function isAuthError(err) {
++  if (!err) return false;
++  return (
++    err.status === 401 ||
++    err.code === 'PGRST301' ||
++    /jwt|token/i.test(String(err.message || ''))
++  );
++}
++
++async function fetchParts(ids) {
++  const chunks = [];
++  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
++
++  const responses = await Promise.all(
++    chunks.map((chunk) =>
++      supabase
++        .from('parts')
++        .select('id,name,category,price,stock_qty,low_stock_threshold,image_url,active')
++        .in('id', chunk)
++    )
++  );
++
++  let merged = [];
++  for (const res of responses) {
++    if (res.error) return { data: null, error: res.error };
++    if (res.data) merged = merged.concat(res.data);
++  }
++  return { data: merged, error: null };
++}
++
++/**
++ * Hook: resolves cart items into lines using live data from the parts table
++ * (never part_costs or cost_price). Debounced refetch when items change.
++ * If the saved login token is rejected (401), the broken local session is
++ * cleared and the read is retried once as a visitor (parts are public).
+  */
+ export function useCartLines() {
+   const { items, setQty, removeItem } = useCart();
+   const [partsData, setPartsData] = useState([]);
++  const [fetchedKey, setFetchedKey] = useState(null);
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState(null);
++  const [reloadTick, setReloadTick] = useState(0);
+ 
+-  const debounceTimerRef = useRef(null);
++  const idsKey = useMemo(
++    () =>
++      Array.from(new Set(items.map((i) => i.partId).filter(Boolean)))
++        .sort()
++        .join(','),
++    [items]
++  );
+ 
+-  // Debounced fetch of parts data
+   useEffect(() => {
+-    if (debounceTimerRef.current) {
+-      clearTimeout(debounceTimerRef.current);
+-    }
+-
+-    const uniqueIds = Array.from(new Set(items.map((i) => i.partId).filter(Boolean)));
+-
+-    if (uniqueIds.length === 0) {
++    if (idsKey === '') {
+       setPartsData([]);
++      setFetchedKey('');
+       setLoading(false);
+       setError(null);
+-      return;
++      return undefined;
+     }
+ 
++    let cancelled = false;
+     setLoading(true);
+ 
+-    debounceTimerRef.current = setTimeout(async () => {
++    const timer = setTimeout(async () => {
+       try {
+-        // Chunk requests into batches of 50 IDs
+-        const chunks = [];
+-        for (let i = 0; i < uniqueIds.length; i += 50) {
+-          chunks.push(uniqueIds.slice(i, i + 50));
+-        }
+-
+-        const responses = await Promise.all(
+-          chunks.map((chunk) =>
+-            supabase
+-              .from('parts')
+-              .select('id,name,category,price,stock_qty,low_stock_threshold,image_url,active')
+-              .in('id', chunk)
+-          )
+-        );
+-
+-        let merged = [];
+-        let queryError = null;
+-
+-        for (const res of responses) {
+-          if (res.error) {
+-            queryError = res.error;
+-            break;
+-          }
+-          if (res.data) {
+-            merged = merged.concat(res.data);
++        const ids = idsKey.split(',');
++        let res = await fetchParts(ids);
++
++        if (res.error && isAuthError(res.error)) {
++          console.warn('[useCartLines] Session rejected, clearing it and retrying as visitor');
++          try {
++            await supabase.auth.signOut({ scope: 'local' });
++          } catch {
++            // ignore sign out errors
+           }
++          res = await fetchParts(ids);
+         }
+ 
+-        if (queryError) {
+-          throw queryError;
+-        }
++        if (cancelled) return;
++        if (res.error) throw res.error;
+ 
+-        setPartsData(merged);
++        setPartsData(res.data);
++        setFetchedKey(idsKey);
+         setError(null);
+       } catch (err) {
++        if (cancelled) return;
+         console.error('[useCartLines] fetch error:', err);
+-        setError(err.message || 'Unable to load cart parts details');
++        setError('We could not load your cart details. Please check your connection and try again.');
+       } finally {
+-        setLoading(false);
++        if (!cancelled) setLoading(false);
+       }
+     }, 120);
+ 
+     return () => {
+-      if (debounceTimerRef.current) {
+-        clearTimeout(debounceTimerRef.current);
+-      }
++      cancelled = true;
++      clearTimeout(timer);
+     };
+-  }, [items]);
++  }, [idsKey, reloadTick]);
+ 
+-  // Map parts data to id lookup
+-  const partsMap = useMemo(() => {
++  const ready = !error && fetchedKey === idsKey;
++
++  const partsById = useMemo(() => {
+     const map = new Map();
+-    for (const p of partsData) {
+-      if (p && p.id) {
+-        map.set(p.id, p);
+-      }
+-    }
++    for (const p of partsData) if (p && p.id) map.set(p.id, p);
+     return map;
+   }, [partsData]);
+ 
+-  // Construct lines for display
+-  const lines = useMemo(() => {
+-    return items.map((item) => {
+-      const part = partsMap.get(item.partId);
+-
+-      // 1. Part missing or inactive
+-      if (!part || part.active === false) {
+-        return {
+-          partId: item.partId,
+-          part: part || { id: item.partId, name: 'Part unavailable', category: '', price: 0 },
+-          qty: item.qty,
+-          displayedQty: item.qty,
+-          available: false,
+-          isClamped: false,
+-          status: 'no_longer_available',
+-          statusText: 'No longer available',
+-          lineTotal: 0,
+-          stockQty: 0,
+-        };
+-      }
++  const { lines, subtotal, hasIssues } = useMemo(
++    () => buildCartLines(items, partsById, ready),
++    [items, partsById, ready]
++  );
+ 
+-      const stockQty = typeof part.stock_qty === 'number' ? Math.max(0, Math.floor(part.stock_qty)) : 0;
+-      const unitPrice = typeof part.price === 'number' ? part.price : Number(part.price) || 0;
+-
+-      // 2. Out of stock
+-      if (stockQty <= 0) {
+-        return {
+-          partId: item.partId,
+-          part,
+-          qty: item.qty,
+-          displayedQty: item.qty,
+-          available: false,
+-          isClamped: false,
+-          status: 'out_of_stock',
+-          statusText: 'Out of stock',
+-          lineTotal: 0,
+-          stockQty: 0,
+-        };
+-      }
+-
+-      // 3. Stored quantity exceeds current stock -> clamp displayed quantity
+-      if (item.qty > stockQty) {
+-        const displayedQty = stockQty;
+-        const lineTotal = unitPrice * displayedQty;
+-        return {
+-          partId: item.partId,
+-          part,
+-          qty: item.qty,
+-          displayedQty,
+-          available: true,
+-          isClamped: true,
+-          status: 'clamped',
+-          statusText: `Only ${stockQty} available`,
+-          lineTotal,
+-          stockQty,
+-        };
+-      }
+-
+-      // 4. Normal available line
+-      const displayedQty = item.qty;
+-      const lineTotal = unitPrice * displayedQty;
+-      return {
+-        partId: item.partId,
+-        part,
+-        qty: item.qty,
+-        displayedQty,
+-        available: true,
+-        isClamped: false,
+-        status: 'ok',
+-        statusText: null,
+-        lineTotal,
+-        stockQty,
+-      };
+-    });
+-  }, [items, partsMap]);
+-
+-  // Subtotal: sum of lineTotal for available lines only
+-  const subtotal = useMemo(() => {
+-    return lines.reduce((sum, line) => {
+-      if (line.available) {
+-        return sum + line.lineTotal;
+-      }
+-      return sum;
+-    }, 0);
+-  }, [lines]);
+-
+-  // Has unavailable or clamped lines
+-  const hasIssues = useMemo(() => {
+-    return lines.some((l) => !l.available || l.isClamped);
+-  }, [lines]);
+-
+-  // Explicit "Fix cart" action requested by user
++  // Explicit "Fix cart": only acts on data that was really loaded.
+   const fixCart = useCallback(() => {
++    if (!ready) return;
+     for (const line of lines) {
+       if (!line.available) {
+         removeItem(line.partId);
+@@ -200,16 +226,11 @@ export function useCartLines() {
+         setQty(line.partId, line.stockQty);
+       }
+     }
+-  }, [lines, removeItem, setQty]);
+-
+-  return {
+-    lines,
+-    subtotal,
+-    loading,
+-    error,
+-    hasIssues,
+-    fixCart,
+-  };
++  }, [ready, lines, removeItem, setQty]);
++
++  const retry = useCallback(() => setReloadTick((t) => t + 1), []);
++
++  return { lines, subtotal, loading, error, hasIssues, fixCart, retry, ready };
+ }
+ 
+ export default useCartLines;
+diff --git a/src/pages/Checkout.jsx b/src/pages/Checkout.jsx
+index 767ba03..cc82d6d 100644
+--- a/src/pages/Checkout.jsx
++++ b/src/pages/Checkout.jsx
+@@ -22,7 +22,7 @@ export default function Checkout() {
+   const { user, loading: authLoading } = useAuth();
+   const { profile } = useCustomer();
+   const { items, clear } = useCart();
+-  const { lines, subtotal, loading: linesLoading, hasIssues, fixCart } = useCartLines();
++  const { lines, subtotal, loading: linesLoading, error: linesError, hasIssues, fixCart, retry, ready } = useCartLines();
+   const navigate = useNavigate();
+ 
+   // ── Form State ──
+@@ -111,6 +111,15 @@ export default function Checkout() {
+     e.preventDefault();
+     setServerError(null);
+ 
++    // Guard: cart details must be loaded
++    if (!ready) {
++      setServerError({
++        type: 'load',
++        message: 'We could not load your cart details yet. Please wait a moment and try again.',
++      });
++      return;
++    }
++
+     // Guard: issues must be resolved first
+     if (hasIssues) {
+       setServerError({
+@@ -267,7 +276,7 @@ export default function Checkout() {
+   };
+ 
+   // ── Loading Skeleton ──
+-  if (authLoading || (items.length > 0 && linesLoading && lines.length === 0)) {
++  if (authLoading || (items.length > 0 && !ready && !linesError)) {
+     return (
+       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+         <div className="space-y-6 animate-pulse">
+@@ -332,7 +341,7 @@ export default function Checkout() {
+   }
+ 
+   // ── 2) Cart empty or no available lines: redirect to /cart ──
+-  if (!linesLoading && (items.length === 0 || lines.length === 0 || !hasAvailableLines)) {
++  if (ready && !linesLoading && (items.length === 0 || lines.length === 0 || !hasAvailableLines)) {
+     return <Navigate to="/cart" replace />;
+   }
+ 
+@@ -358,6 +367,23 @@ export default function Checkout() {
+         </Link>
+       </div>
+ 
++      {/* Cart details could not be loaded (not a stock problem) */}
++      {linesError && (
++        <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
++          <div className="flex items-center gap-3 text-red-300 text-sm">
++            <AlertCircle className="w-5 h-5 shrink-0 text-red-400" />
++            <span>{linesError}</span>
++          </div>
++          <button
++            type="button"
++            onClick={retry}
++            className="min-h-[40px] px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-semibold transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
++          >
++            Try again
++          </button>
++        </div>
++      )}
++
+       {/* ── 3) Stock Issues Notice with Fix Cart Button ── */}
+       {hasIssues && lines.length > 0 && (
+         <div className="bg-amber-950/40 border border-amber-800/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+@@ -765,7 +791,7 @@ export default function Checkout() {
+               <div className="space-y-3 pt-2">
+                 <button
+                   type="submit"
+-                  disabled={submitting || hasIssues || !hasAvailableLines}
++                  disabled={submitting || !ready || hasIssues || !hasAvailableLines}
+                   className="w-full min-h-[48px] px-6 py-3 rounded-xl bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-[#111827] disabled:text-gray-600 disabled:border disabled:border-[#1f293d] disabled:cursor-not-allowed text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-[#0066CC]/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                 >
+                   {submitting ? (

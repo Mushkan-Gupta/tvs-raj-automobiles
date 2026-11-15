@@ -94,6 +94,22 @@ export function AuthProvider({ children }) {
         }
       } catch (error) {
         console.error('[AuthContext] Error fetching user role:', error);
+        // A rejected token (401) means the saved login is broken: clear it locally
+        // so the visitor is treated as signed out instead of failing every request.
+        if (error?.status === 401 || error?.code === 'PGRST301' || /jwt/i.test(String(error?.message || ''))) {
+          try {
+            await supabase.auth.signOut({ scope: 'local' });
+          } catch {
+            // ignore
+          }
+          setCachedRole(sessionUser.id, null);
+          if (mounted) {
+            setUser(null);
+            setRole(null);
+            setLoading(false);
+          }
+          return;
+        }
         if (mounted) {
           setUser(sessionUser);
           // If we had a cached role, keep it; otherwise set null
