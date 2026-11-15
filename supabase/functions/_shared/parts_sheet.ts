@@ -62,7 +62,7 @@ function getSupabaseAdmin() {
   });
 }
 
-async function getGoogleContext(): Promise<{ accessToken: string; sheetId: string }> {
+export async function getGoogleContext(): Promise<{ accessToken: string; sheetId: string }> {
   const clientEmail = Deno.env.get("GOOGLE_CLIENT_EMAIL");
   const privateKeyPem = Deno.env.get("GOOGLE_PRIVATE_KEY")?.replace(/\\n/g, "\n");
   const sheetId = Deno.env.get("GOOGLE_SHEET_ID");

@@ -24,6 +24,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CORS_HEADERS, requireUser } from "../_shared/auth.ts";
 import { validateOrderInput } from "../_shared/order_input.ts";
+import { upsertOrderRow } from "../_shared/orders_sheet.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -129,6 +130,18 @@ Deno.serve(async (req: Request) => {
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) return jsonResponse({ error: "Could not place the order." }, 500);
+
+  // Copy the new order into the Google Sheet "Orders" tab. Best effort: a Sheet
+  // problem never fails the order. Runs after the response when possible.
+  if (row.was_duplicate !== true) {
+    const syncing = upsertOrderRow(row.order_id).then((r) => {
+      if (!r.ok) console.error("create-order: sheet sync problem", r.error);
+    });
+    // deno-lint-ignore no-explicit-any
+    const runtime = (globalThis as any).EdgeRuntime;
+    if (runtime && typeof runtime.waitUntil === "function") runtime.waitUntil(syncing);
+    else await syncing;
+  }
 
   return jsonResponse({
     order_id: row.order_id,
