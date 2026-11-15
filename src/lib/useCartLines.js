@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import { useCart } from './CartContext';
+import { availableQty } from './stock';
 
 /**
  * Turns raw cart items ({ partId, qty }) into displayable lines.
@@ -11,8 +12,8 @@ import { useCart } from './CartContext';
  *
  * Rules when ready:
  *  - Missing part or active = false -> "No longer available", excluded from subtotal
- *  - stock_qty = 0 -> "Out of stock", excluded from subtotal
- *  - qty > stock_qty -> displayed qty clamped, "Only N available"
+ *  - availableQty = 0 -> "Out of stock", excluded from subtotal
+ *  - qty > availableQty -> displayed qty clamped, "Only N available"
  *  - Stored qty is never modified here.
  */
 export function buildCartLines(items, partsById, ready) {
@@ -49,8 +50,7 @@ export function buildCartLines(items, partsById, ready) {
       };
     }
 
-    const stockQty =
-      typeof part.stock_qty === 'number' ? Math.max(0, Math.floor(part.stock_qty)) : 0;
+    const stockQty = availableQty(part);
     const unitPrice = typeof part.price === 'number' ? part.price : Number(part.price) || 0;
 
     if (stockQty <= 0) {
@@ -120,7 +120,7 @@ async function fetchParts(ids) {
     chunks.map((chunk) =>
       supabase
         .from('parts')
-        .select('id,name,category,price,stock_qty,low_stock_threshold,image_url,active')
+        .select('id,name,category,price,stock_qty,reserved_qty,low_stock_threshold,image_url,active')
         .in('id', chunk)
     )
   );

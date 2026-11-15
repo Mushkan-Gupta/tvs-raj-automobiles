@@ -23,6 +23,7 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import { formatNPR } from '../lib/formatters';
 import { useCart } from '../lib/CartContext';
+import { availableQty } from '../lib/stock';
 import BikePlaceholder from '../components/BikePlaceholder';
 import PartImagePlaceholder from '../components/parts/PartImagePlaceholder';
 
@@ -34,8 +35,9 @@ function BikePartRow({ part }) {
   const { getItemQty, addItem, setQty } = useCart();
 
   const qtyInCart = getItemQty(part.id);
-  const isOutOfStock = part.stock_qty <= 0;
-  const isLowStock = !isOutOfStock && part.stock_qty <= (part.low_stock_threshold || 3);
+  const available = availableQty(part);
+  const isOutOfStock = available <= 0;
+  const isLowStock = !isOutOfStock && available <= (part.low_stock_threshold || 3);
 
   return (
     <div className="bg-[#151c2c] border border-[#1f293d] rounded-xl p-3 flex items-center gap-3 transition-colors duration-150 ease-in-out hover:border-[#0066CC]/60">
@@ -87,7 +89,7 @@ function BikePartRow({ part }) {
             </span>
           ) : isLowStock ? (
             <span className="text-[11px] text-amber-400 font-medium shrink-0">
-              Only {part.stock_qty} left
+              Only {available} left
             </span>
           ) : (
             <span className="text-[11px] text-emerald-400 font-medium shrink-0">
@@ -151,11 +153,11 @@ function BikePartRow({ part }) {
             </span>
             <button
               type="button"
-              disabled={qtyInCart >= part.stock_qty}
+              disabled={qtyInCart >= available}
               onClick={() => setQty(part.id, qtyInCart + 1)}
               className="w-8 h-8 min-w-[32px] flex items-center justify-center rounded text-gray-300 hover:text-white hover:bg-[#151c2c] disabled:text-gray-600 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
               aria-label={`Increase quantity`}
-              title={qtyInCart >= part.stock_qty ? 'Maximum available stock reached' : 'Increase'}
+              title={qtyInCart >= available ? 'Maximum available stock reached' : 'Increase'}
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -349,7 +351,7 @@ export default function BikeDetail() {
       // 3. Fetch parts (active only; NEVER read part_costs or cost_price)
       const partsPromise = supabase
         .from('parts')
-        .select('id,name,category,price,stock_qty,low_stock_threshold,image_url,is_pinned,fits_all,sort_order')
+        .select('id,name,category,price,stock_qty,reserved_qty,low_stock_threshold,image_url,is_pinned,fits_all,sort_order')
         .eq('active', true)
         .order('is_pinned', { ascending: false })
         .order('sort_order', { ascending: true })

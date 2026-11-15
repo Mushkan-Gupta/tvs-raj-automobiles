@@ -3,6 +3,7 @@ import { Search, Bike, Pin, RotateCcw, AlertCircle, Package, ShieldCheck, X, Sho
 import { supabase } from '../lib/supabaseClient';
 import { formatNPR } from '../lib/formatters';
 import { useCart } from '../lib/CartContext';
+import { availableQty } from '../lib/stock';
 import PartImagePlaceholder from '../components/parts/PartImagePlaceholder';
 
 /**
@@ -14,9 +15,10 @@ function PartCard({ part, compatibleBikes = [] }) {
 
   const qtyInCart = getItemQty(part.id);
 
-  // Stock status text & style
-  const isOutOfStock = part.stock_qty <= 0;
-  const isLowStock = !isOutOfStock && part.stock_qty <= (part.low_stock_threshold || 3);
+  // Stock status text & style based on available quantity (stock_qty - reserved_qty)
+  const available = availableQty(part);
+  const isOutOfStock = available <= 0;
+  const isLowStock = !isOutOfStock && available <= (part.low_stock_threshold || 3);
 
   return (
     <article
@@ -52,7 +54,7 @@ function PartCard({ part, compatibleBikes = [] }) {
             </span>
           ) : isLowStock ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-950/90 text-amber-300 border border-amber-800/80">
-              Only {part.stock_qty} left
+              Only {available} left
             </span>
           ) : (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/90 text-emerald-300 border border-emerald-800/80">
@@ -159,11 +161,11 @@ function PartCard({ part, compatibleBikes = [] }) {
                     </span>
                     <button
                       type="button"
-                      disabled={qtyInCart >= part.stock_qty}
+                      disabled={qtyInCart >= available}
                       onClick={() => setQty(part.id, qtyInCart + 1)}
                       className="w-10 h-10 min-w-[40px] flex items-center justify-center rounded text-gray-300 hover:text-white hover:bg-[#151c2c] disabled:text-gray-600 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
                       aria-label={`Increase quantity for ${part.name}`}
-                      title={qtyInCart >= part.stock_qty ? 'Maximum available stock reached' : 'Increase'}
+                      title={qtyInCart >= available ? 'Maximum available stock reached' : 'Increase'}
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -221,7 +223,7 @@ export default function Parts() {
       // 1. Fetch parts (active only; NEVER read part_costs or cost_price)
       const partsPromise = supabase
         .from('parts')
-        .select('id,name,category,description,price,stock_qty,low_stock_threshold,image_url,is_pinned,fits_all,sort_order')
+        .select('id,name,category,description,price,stock_qty,reserved_qty,low_stock_threshold,image_url,is_pinned,fits_all,sort_order')
         .eq('active', true)
         .order('is_pinned', { ascending: false })
         .order('sort_order', { ascending: true })
