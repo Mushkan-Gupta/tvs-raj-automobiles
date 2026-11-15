@@ -87,7 +87,7 @@ export default function AdminParts() {
       // Query parts ordered by pinned first, then sort_order, then name
       const { data, error } = await supabase
         .from('parts')
-        .select('*')
+        .select('*, reserved_qty')
         .order('is_pinned', { ascending: false })
         .order('sort_order', { ascending: true })
         .order('name', { ascending: true });
@@ -515,10 +515,17 @@ export default function AdminParts() {
 
                   {/* Stock */}
                   <td className="px-4 py-3">
-                    <StockBadge
-                      stockQty={part.stock_qty}
-                      lowStockThreshold={part.low_stock_threshold}
-                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StockBadge
+                        stockQty={part.stock_qty}
+                        lowStockThreshold={part.low_stock_threshold}
+                      />
+                      {Number(part.reserved_qty) > 0 && (
+                        <span className="text-xs text-gray-400">
+                          {part.reserved_qty} reserved
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* Fit info */}
