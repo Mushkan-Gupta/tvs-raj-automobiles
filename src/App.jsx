@@ -28,6 +28,7 @@ import EmployeeDashboard from './pages/EmployeeDashboard';
 import PendingDocuments from './pages/PendingDocuments';
 import PendingPayments from './pages/PendingPayments';
 import SalesHistory from './pages/SalesHistory';
+import StaffOrders from './pages/StaffOrders';
 import StaffLayout from './components/StaffLayout';
 import { AuthProvider } from './lib/AuthContext';
 import { CartProvider } from './lib/CartContext';
@@ -65,6 +66,7 @@ function AppShell() {
           <Route element={<ProtectedRoute allowedRoles={['admin', 'employee']} />}>
             <Route element={<StaffLayout />}>
               <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
+              <Route path="/employee/orders" element={<StaffOrders />} />
               <Route path="/employee/enquiries" element={<EmployeeDashboard view="enquiries" />} />
               <Route path="/employee/sales" element={<SalesHistory />} />
               <Route path="/employee/pending-documents" element={<PendingDocuments />} />

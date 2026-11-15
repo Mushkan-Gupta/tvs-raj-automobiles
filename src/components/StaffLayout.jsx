@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { NavLink, Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Clock, Package, Wrench, FileText, CreditCard, Receipt,
-  MessageSquare, Users, LogOut, Menu, X, Bike, Globe, ChevronUp,
+  MessageSquare, Users, LogOut, Menu, X, Bike, Globe, ChevronUp, ShoppingBag,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
@@ -31,6 +31,7 @@ const ADMIN_SECTIONS = [
   {
     title: 'Records',
     items: [
+      { key: 'orders', name: 'Online orders', to: '/employee/orders', icon: ShoppingBag, badge: 'orders', amber: true },
       { key: 'docs', name: 'Pending documents', to: '/employee/pending-documents', icon: FileText, badge: 'docs' },
       { key: 'payments', name: 'Payments', to: '/employee/pending-payments', icon: CreditCard, badge: 'payments', amber: true },
       { key: 'sales', name: 'Sales history', to: '/employee/sales', icon: Receipt },
@@ -48,6 +49,7 @@ const EMPLOYEE_SECTIONS = [
     title: null,
     items: [
       { key: 'stock', name: 'Stock management', to: '/employee/dashboard', icon: Package },
+      { key: 'orders', name: 'Online orders', to: '/employee/orders', icon: ShoppingBag, badge: 'orders', amber: true },
       { key: 'docs', name: 'Pending documents', to: '/employee/pending-documents', icon: FileText, badge: 'docs' },
       { key: 'payments', name: 'Payments', to: '/employee/pending-payments', icon: CreditCard, badge: 'payments', amber: true },
       { key: 'sales', name: 'Sales history', to: '/employee/sales', icon: Receipt },
@@ -216,12 +218,12 @@ export default function StaffLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [badges, setBadgesState] = useState({ approvals: 0, docs: 0, payments: 0 });
+  const [badges, setBadgesState] = useState({ approvals: 0, docs: 0, payments: 0, orders: 0 });
 
   const setBadges = useCallback((patch) => {
     setBadgesState((prev) => {
       const next = { ...prev, ...patch };
-      return next.approvals === prev.approvals && next.docs === prev.docs && next.payments === prev.payments
+      return next.approvals === prev.approvals && next.docs === prev.docs && next.payments === prev.payments && next.orders === prev.orders
         ? prev
         : next;
     });
@@ -257,6 +259,21 @@ export default function StaffLayout() {
     return () => { cancelled = true; };
   }, [role, location.pathname, setBadges]);
 
+  // New orders count (admin + employee): poll every 60 seconds
+  useEffect(() => {
+    let cancelled = false;
+    const fetchOrderCount = async () => {
+      const { count, error } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'new');
+      if (!cancelled && !error && count !== null) setBadges({ orders: count });
+    };
+    fetchOrderCount();
+    const interval = setInterval(fetchOrderCount, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [setBadges]);
+
   const sections = role === 'admin' ? ADMIN_SECTIONS : EMPLOYEE_SECTIONS;
 
   const handleLogout = async () => {
@@ -265,7 +282,7 @@ export default function StaffLayout() {
   };
 
   const ctx = useMemo(() => ({ badges, setBadges }), [badges, setBadges]);
-  const totalAlerts = role === 'admin' ? badges.approvals : 0;
+  const totalAlerts = badges.approvals + badges.orders;
 
   return (
     <StaffBadgeContext.Provider value={ctx}>
