@@ -328,7 +328,6 @@ function OrderDetailPanel({ order, onClose, onRefresh }) {
   const ref = useRef(null);
   useFocusTrap(ref, !!order);
 
-  const { setBadges } = useStaffBadges();
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
@@ -390,8 +389,7 @@ function OrderDetailPanel({ order, onClose, onRefresh }) {
         setSheetWarning(true);
       }
       setToast(`Order ${result?.order_no || ''} updated to "${body.status}".`);
-      await onRefresh();
-      setBadges({ orders: null }); // triggers re-fetch in StaffLayout
+      await onRefresh(); // also refreshes the sidebar badge
     } catch {
       const netMsg = 'Network error. Please check your connection.';
       setDialogError(netMsg);
@@ -400,7 +398,7 @@ function OrderDetailPanel({ order, onClose, onRefresh }) {
       setActionLoading(false);
       setDialogLoading(false);
     }
-  }, [onRefresh, setBadges]);
+  }, [onRefresh]);
 
   if (!order) return null;
 
